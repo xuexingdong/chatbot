@@ -22,7 +22,7 @@ class CustomClient(WebWxClient):
     def handle_text(self, msg):
         self.logger.info(msg)
         # 备注处理
-        if msg['from_username'].startswith('@') and msg['content'].startswith('#备注 '):
+        if msg['from_username'].startswith('@') and msg['content'].startswith('#备注'):
             if self.webwxoplog(msg['from_username'], msg['content'][4:]):
                 self._publish(msg)
         else:
