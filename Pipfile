@@ -1,0 +1,19 @@
+[[source]]
+url = "https://pypi.doubanio.com/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+requests-toolbelt = "*"
+pika = "*"
+requests-html = "*"
+requests = "*"
+qrcode = "*"
+arrow = "*"
+redis = "*"
+PyYAML = "*"
+
+[dev-packages]
+
+[requires]
+python_version = "3.6"

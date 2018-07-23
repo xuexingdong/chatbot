@@ -4,6 +4,7 @@ import logging
 import mimetypes
 import os
 import random
+import threading
 import time
 from abc import abstractmethod
 from urllib.parse import urlencode
@@ -23,6 +24,7 @@ class WebWxClient:
 
     def __init__(self):
         self.session = HTMLSession()
+
         # 初始化参数
         self.device_id = 'e' + repr(random.random())[2:17]
         self.redirect_uri = ''
@@ -99,6 +101,7 @@ class WebWxClient:
         if not self.testsynccheck():
             self.logger.error('检查同步接口失败')
             return
+        self.cookies = self.session
 
     def _gen_uuid(self):
         url = 'https://login.weixin.qq.com/jslogin'
@@ -163,7 +166,7 @@ class WebWxClient:
         }
         return True
 
-    def _logout(self):
+    def logout(self):
         url = self.base_uri + '/webwxlogout'
         params = {
             'redirect': 1,
@@ -304,8 +307,7 @@ class WebWxClient:
         }
         r = self.session.post(url, json=data)
         r.encoding = 'utf-8'
-        msg = r.json()
-        self.handle(msg)
+        self.handle(r.json())
 
     def get_sync_url(self):
         return self.base_uri + '/webwxsync?sid=%s&skey=%s&pass_ticket=%s' % (
@@ -332,6 +334,7 @@ class WebWxClient:
         if openid == self.user['UserName']:
             return self.user['NickName']
         # 群组
+        name = ''
         if openid[:2] == '@@':
             name = self.get_group_name(openid)
         if openid in self.contacts:
@@ -343,7 +346,7 @@ class WebWxClient:
         if openid in self.group_contacts:
             member = self.group_contacts[openid]
             name = member['DisplayName'] if member['DisplayName'] else member['NickName']
-        return ''
+        return name
 
     def get_group_name(self, openid):
         if openid in self.groups:
@@ -370,15 +373,18 @@ class WebWxClient:
         }
         return self.session.post(url, json=data).json()['ContactList']
 
-    def handle(self, message):
-        if message['BaseResponse']['Ret'] != 0:
+    def handle(self, res):
+        if res['BaseResponse']['Ret'] != 0:
             return
-        self.sync_key_dic = message['SyncKey']
+        self.sync_key_dic = res['SyncKey']
         self.sync_key = '|'.join(
             [str(kv['Key']) + '_' + str(kv['Val']) for kv in self.sync_key_dic['List']])
 
+        for contact in res['ModContactList']:
+            self.contacts[contact['UserName']] = contact
+
         # 遍历追加的消息
-        for add_msg in message['AddMsgList']:
+        for add_msg in res['AddMsgList']:
             try:
                 msg_type = MsgType(int(add_msg['MsgType']))
             except ValueError:
@@ -485,20 +491,27 @@ class WebWxClient:
             pass
 
     def run(self):
+        def _run():
+            try:
+                while True:
+                    retcode, selector = self.synccheck()
+                    # cookie失效
+                    if retcode == '1101':
+                        self.logout()
+                        self.logger.error('cookie过期')
+                        break
+                    if retcode == '1102':
+                        self.testsynccheck()
+                        break
+                    if selector == '2':
+                        self.webwxsync()
+            except Exception as e:
+                self.logger.error(e)
+                self.logout()
+
         self.logger.info('开始监听消息')
-        # try:
-        while True:
-            retcode, _ = self.synccheck()
-            # cookie失效
-            if retcode == '1101':
-                self._logout()
-                self.logger.error('cookie过期')
-                break
-            self.webwxsync()
-            time.sleep(3)
-        # except Exception as e:
-        #     self.logger.error(e)
-        #     self._logout()
+        thread = threading.Thread(target=_run)
+        thread.start()
 
     def webwxgetmsgimg(self, msgid):
         url = self.base_uri + '/webwxgetmsgimg?MsgID=%s&skey=%s&type=slave' % (msgid, self.skey)
@@ -515,7 +528,7 @@ class WebWxClient:
 
     def webwxoplog(self, to_username, remark_name):
         """设置备注名"""
-        url = self.base_uri + '/webwxoplog'
+        url = self.base_uri + '/webwxoplog?pass_ticket=%s' % self.pass_ticket
         params = {
             'BaseRequest': self.base_request,
             'CmdId':       2,
@@ -556,8 +569,7 @@ class WebWxClient:
                 "ToUserName":   to_username,
                 "LocalID":      client_msg_id,
                 "ClientMsgId":  client_msg_id
-            },
-            'Scene':       0
+            }
         }
         headers = {'content-type': 'application/json;charset=UTF-8'}
         data = json.dumps(params, ensure_ascii=False).encode()
@@ -566,9 +578,11 @@ class WebWxClient:
         return success
 
     def webwxsendmsgimg(self, to_username, file_name):
+        media_id = self._webwxuploadmedia(file_name)
+        if not media_id:
+            return
         url = self.base_uri + '/webwxsendmsgimg?fun=async&f=json&pass_ticket=%s' % self.pass_ticket
         client_msg_id = self._gen_client_msg_id()
-        media_id = self._webwxuploadmedia(file_name)
         params = {
             "BaseRequest": self.base_request,
             "Msg":         {
@@ -586,6 +600,32 @@ class WebWxClient:
         success = dic['BaseResponse']['Ret'] == 0
         return success
 
+    def webwxsendappmsg(self, to_username, file_name):
+        media_id = self._webwxuploadmedia(file_name)
+        if not media_id:
+            return
+        url = self.base_uri + '/webwxsendappmsg?fun=async&f=json&pass_ticket=' + self.pass_ticket
+        client_msg_id = self._gen_client_msg_id()
+        params = {
+            'BaseRequest': self.base_request,
+            'Msg':         {
+                'Type':         6,
+                'Content':      (
+                                        "<appmsg appid='wxeb7ec651dd0aefa9' sdkver=''><title>%s</title><des></des><action></action><type>6</type><content></content><url></url><lowurl></lowurl><appattach><totallen>%s</totallen><attachid>%s</attachid><fileext>%s</fileext></appattach><extinfo></extinfo></appmsg>" % (
+                                    os.path.basename(file_name).encode('utf-8'), str(os.path.getsize(file_name)),
+                                    media_id,
+                                    file_name.split('.')[-1])).encode('utf8'),
+                'FromUserName': self.user['UserName'],
+                "ToUserName":   to_username,
+                "LocalID":      client_msg_id,
+                "ClientMsgId":  client_msg_id
+            }
+        }
+        data = json.dumps(params, ensure_ascii=False).encode()
+        dic = self.session.post(url, data=data).json()
+        success = dic['BaseResponse']['Ret'] == 0
+        return success
+
     def _webwxuploadmedia(self, file_url):
         url = 'https://file.wx2.qq.com/cgi-bin/mmwebwx-bin/webwxuploadmedia?f=json'
 
@@ -597,7 +637,8 @@ class WebWxClient:
         # pic格式，直接显示。doc格式则显示为文件。
         media_type = 'pic' if mime_type.split('/')[0] == 'image' else 'doc'
         # 上一次修改日期
-        last_modified_date = '{0:ddd MMM DD YYYY HH:mm:ss} GMT{0:Z} (CST)'.format(arrow.now())
+        now = arrow.now()
+        last_modified_date = f'{now:ddd MMM DD YYYY HH:mm:ss} GMT{now:Z} (CST)'
         file_content = requests.get(file_url).content
         # 文件大小
         file_size = len(file_content)

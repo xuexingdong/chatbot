@@ -57,3 +57,5 @@ TEXT = 1
 
 ## Referer
 
+https://github.com/Urinx/WeixinBot
+
