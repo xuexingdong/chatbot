@@ -533,6 +533,7 @@ class WebWxClient:
                 self.logger.info('cookie过期')
                 self.logout()
             elif retcode == '1102':
+                self.logger.info('1102')
                 self.testsynccheck()
             else:
                 self.logger.warning(f'未知retcode: {retcode}')
