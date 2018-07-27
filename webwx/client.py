@@ -13,7 +13,7 @@ from xml.dom import minidom
 import arrow
 import qrcode
 import requests
-from requests_html import HTMLSession, HTMLResponse
+from requests_html import HTMLResponse, HTMLSession
 from requests_toolbelt import MultipartEncoder
 
 from webwx.enums import MsgType, QRCodeStatus
@@ -24,6 +24,9 @@ class WebWxClient:
 
     def __init__(self):
         self.session = HTMLSession()
+        self.session.headers = {
+            'User-Agent': 'User-Agent:Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/56.0.2924.87 Safari/537.36'
+        }
 
         # 初始化参数
         self.device_id = 'e' + repr(random.random())[2:17]
@@ -101,7 +104,6 @@ class WebWxClient:
         if not self.testsynccheck():
             self.logger.error('检查同步接口失败')
             return
-        self.cookies = self.session
 
     def _gen_uuid(self):
         url = 'https://login.weixin.qq.com/jslogin'
@@ -490,28 +492,19 @@ class WebWxClient:
             #     self._showMsg(raw_msg)
             pass
 
-    def run(self):
-        def _run():
-            try:
-                while True:
-                    retcode, selector = self.synccheck()
-                    # cookie失效
-                    if retcode == '1101':
-                        self.logout()
-                        self.logger.error('cookie过期')
-                        break
-                    if retcode == '1102':
-                        self.testsynccheck()
-                        break
-                    if selector == '2':
-                        self.webwxsync()
-            except Exception as e:
-                self.logger.error(e)
-                self.logout()
-
+    def start_receiving(self):
         self.logger.info('开始监听消息')
-        thread = threading.Thread(target=_run)
-        thread.start()
+        while True:
+            retcode, selector = self.synccheck()
+            if selector == '2':
+                self.logger.info('同步消息')
+                self.webwxsync()
+            elif retcode == '1101':
+                self.logout()
+            elif retcode == '1102':
+                self.testsynccheck()
+            else:
+                self.logger.warning(f'{retcode},{selector}')
 
     def webwxgetmsgimg(self, msgid):
         url = self.base_uri + '/webwxgetmsgimg?MsgID=%s&skey=%s&type=slave' % (msgid, self.skey)

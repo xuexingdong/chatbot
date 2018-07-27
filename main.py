@@ -1,13 +1,15 @@
+import functools
 import json
-from concurrent.futures import ThreadPoolExecutor
+import threading
 from logging.config import dictConfig
 
-import functools
+import apscheduler
 import pika
 import yaml
+from apscheduler.schedulers.background import BackgroundScheduler
 from redis import StrictRedis
 
-from config import RABBIT_HOST, RABBIT_PORT, RECEIVE_QUEUE, SEND_QUEUE
+from config import RABBIT_HOST, RABBIT_PORT, RECEIVE_QUEUE, SEND_QUEUE, REDIS_HOST, REDIS_PORT, REDIS_DB
 from webwx.client import WebWxClient
 from webwx.enums import MsgType
 
@@ -16,7 +18,7 @@ class CustomClient(WebWxClient):
 
     def __init__(self):
         super().__init__()
-        self.r = StrictRedis()
+        self.r = StrictRedis(REDIS_HOST, REDIS_PORT, REDIS_DB)
         self.r.delete(*self.r.keys('chatbot:*'))
         # chatid代表微信网页版聊天时为用户分配的id
         self.r.set('chatbot:self_chatid', self.user['UserName'])
@@ -26,6 +28,11 @@ class CustomClient(WebWxClient):
         # 好友id列表
         chatids = self.contacts.keys()
         self.r.sadd('chatbot:chatids', chatids)
+        # 定时维护rabbitmq心跳
+        scheduler = BackgroundScheduler()
+        scheduler.add_job(lambda conn: conn.process_data_events(), 'interval',
+                          seconds=30, args=[self.conn])
+        scheduler.start()
 
     def handle_text(self, msg):
         self.logger.info(msg)
@@ -75,6 +82,5 @@ if __name__ == '__main__':
         config = yaml.safe_load(f.read())
     dictConfig(config)
     client = CustomClient()
-    executor = ThreadPoolExecutor(1)
-    executor.submit(consume, client)
-    client.run()
+    threading.Thread(target=consume, args=[client]).start()
+    client.start_receiving()

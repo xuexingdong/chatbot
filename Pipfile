@@ -5,13 +5,15 @@ name = "pypi"
 
 [packages]
 requests-toolbelt = "*"
-pika = "*"
 requests-html = "*"
 requests = "*"
 qrcode = "*"
 arrow = "*"
 redis = "*"
 PyYAML = "*"
+pika = "*"
+aiohttp = "*"
+apscheduler = "*"
 
 [dev-packages]
 
