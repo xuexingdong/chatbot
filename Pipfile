@@ -12,7 +12,6 @@ arrow = "*"
 redis = "*"
 PyYAML = "*"
 pika = "*"
-aiohttp = "*"
 apscheduler = "*"
 
 [dev-packages]

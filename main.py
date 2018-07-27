@@ -3,7 +3,6 @@ import json
 import threading
 from logging.config import dictConfig
 
-import apscheduler
 import pika
 import yaml
 from apscheduler.schedulers.background import BackgroundScheduler

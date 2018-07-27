@@ -4,7 +4,6 @@ import logging
 import mimetypes
 import os
 import random
-import threading
 import time
 from abc import abstractmethod
 from urllib.parse import urlencode
@@ -309,7 +308,7 @@ class WebWxClient:
         }
         r = self.session.post(url, json=data)
         r.encoding = 'utf-8'
-        self.handle(r.json())
+        return r.json()
 
     def get_sync_url(self):
         return self.base_uri + '/webwxsync?sid=%s&skey=%s&pass_ticket=%s' % (
@@ -328,8 +327,7 @@ class WebWxClient:
             return self.media_platforms[openid]['RemarkName']
         if openid in self.group_contacts:
             member = self.group_contacts[openid]
-            name = member['DisplayName'] if member['DisplayName'] else member['NickName']
-        return ''
+            return member['DisplayName'] if member['DisplayName'] else member['NickName']
 
     def get_nick_name(self, openid):
         # 自己
@@ -496,15 +494,48 @@ class WebWxClient:
         self.logger.info('开始监听消息')
         while True:
             retcode, selector = self.synccheck()
-            if selector == '2':
-                self.logger.info('同步消息')
-                self.webwxsync()
+            if retcode == '0':
+                if selector == '0':
+                    self.logger.info('无新消息')
+                elif selector == '1':
+                    self.logger.info('未知1')
+                    msg = self.webwxsync()
+                    self.logger.info(msg)
+                elif selector == '2':
+                    self.logger.info('新消息')
+                    msg = self.webwxsync()
+                    self.handle(msg)
+                elif selector == '3':
+                    self.logger.info('未知3')
+                    msg = self.webwxsync()
+                    self.handle(msg)
+                elif selector == '4':
+                    self.logger.info('通讯录更新')
+                    self.webwxsync()
+                elif selector == '5':
+                    self.logger.info('未知5')
+                    self.webwxsync()
+                elif selector == '6':
+                    self.logger.info('疑似红包')
+                    msg = self.webwxsync()
+                    self.handle(msg)
+                elif selector == '7':
+                    self.logger.info('手机操作微信聊天')
+                    self.webwxsync()
+                    msg = self.webwxsync()
+                    self.handle(msg)
+                else:
+                    self.logger.warning(f'未知selector: {selector}')
+            elif retcode == '1100':
+                self.logger.info('手动登出')
+                self.logout()
             elif retcode == '1101':
+                self.logger.info('cookie过期')
                 self.logout()
             elif retcode == '1102':
                 self.testsynccheck()
             else:
-                self.logger.warning(f'{retcode},{selector}')
+                self.logger.warning(f'未知retcode: {retcode}')
 
     def webwxgetmsgimg(self, msgid):
         url = self.base_uri + '/webwxgetmsgimg?MsgID=%s&skey=%s&type=slave' % (msgid, self.skey)
