@@ -5,7 +5,8 @@ import mimetypes
 import os
 import random
 import time
-from abc import abstractmethod
+from abc import abstractmethod, ABC
+from typing import Dict
 from urllib.parse import urlencode
 from xml.dom import minidom
 
@@ -15,134 +16,69 @@ import requests
 from requests_html import HTMLResponse, HTMLSession
 from requests_toolbelt import MultipartEncoder
 
+from webwx import constants
 from webwx.enums import MsgType, QRCodeStatus
+from webwx.models import Person, ChatRoom, MediaPlatform, Contact
 
 
-class WebWxClient:
+class WebWxClient(ABC):
     logger = logging.getLogger(__name__)
+
+    __login_status = False
 
     def __init__(self):
         self.session = HTMLSession()
         self.session.headers = {
-            'User-Agent': 'User-Agent:Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/56.0.2924.87 Safari/537.36'
+            'User-Agent': constants.USER_AGENT
         }
 
         # 初始化参数
-        self.device_id = 'e' + repr(random.random())[2:17]
+        self.device_id = self.__gen_device_id()
+        self.uuid = ''
         self.redirect_uri = ''
         self.base_uri = ''
         self.skey = ''
         self.sid = ''
         self.uin = ''
         self.pass_ticket = ''
-        # 上传的多媒体文件数
         self.media_count = -1
 
-        self.base_request = None
-        self.sync_key_dic = None
-
-        self.sync_key = ''
-
-        self.user = None
-        # 特殊账号
-        self.special_users = {}
-        self.builtin_special_users = ['newsapp', 'fmessage', 'filehelper', 'weibo', 'qqmail', 'fmessage', 'tmessage',
-                                      'qmessage',
-                                      'qqsync', 'floatbottle', 'lbsapp', 'shakeapp', 'medianote', 'qqfriend',
-                                      'readerapp',
-                                      'blogapp', 'facebookapp', 'masssendapp', 'meishiapp', 'feedsapp',
-                                      'voip', 'blogappweixin', 'weixin', 'brandsessionholder', 'weixinreminder',
-                                      'wxid_novlwrv3lqwv11', 'gh_22b87fa7cb3c', 'officialaccounts',
-                                      'notification_messages',
-                                      'wxid_novlwrv3lqwv11', 'gh_22b87fa7cb3c', 'wxitil', 'userexperience_alarm',
-                                      'notification_messages']
-
-        # 好友
-        self.contacts = {}
-        # 群组
-        self.groups = {}
-        # 群友
-        self.group_contacts = {}
-        # 公众账号
-        self.media_platforms = {}
-        # 同步地址域名
+        # 请求所需的参数
+        self.base_request = {}
+        self.sync_key_dic = {}
         self.sync_host = ''
 
-        # 登录
-        status = None
-        while status != QRCodeStatus.CONFIRM:
-            # 生成uuid
-            self.uuid = self._gen_uuid()
-            status = QRCodeStatus.WAITING
-            self.logger.info('请扫描下方二维码')
-            # 控制台打印二维码
-            self._print_qrcode()
-            # 判断用户是否扫码
-            while status != QRCodeStatus.EXPIRED and status != QRCodeStatus.SUCCESS:
-                status = self._get_qrcode_status()
-            # 判断用户是否点击登录
-            while status != QRCodeStatus.EXPIRED and status != QRCodeStatus.CONFIRM:
-                status = self._get_qrcode_status(0)
-        self.logger.info('登录')
-        if not self._login():
-            self.logger.error('登录失败')
-            return
-        self.logger.info('初始化')
-        if not self._webwxinit():
-            self.logger.error('初始化失败')
-            return
-        self.logger.info('开启状态通知')
-        if not self._webwxstatusnotify():
-            self.logger.error('开启状态通知失败')
-            return
-        self.logger.info('获取联系人')
-        if not self._webwxgetcontact():
-            self.logger.error('获取联系人失败')
-            return
-        self.logger.info('检查同步接口')
-        if not self.testsynccheck():
-            self.logger.error('检查同步接口失败')
-            return
+        self.user: Person = None
+        # 特殊账号
+        self.special_users: Dict[str, Contact] = {}
+        self.usernames_of_builtin_special_users = constants.BUILTIN_SPECIAL_USERS
+        # 好友
+        self.contacts: Dict[str, Person] = {}
+        # 群组
+        self.chatrooms: Dict[str, ChatRoom] = {}
+        # 群友
+        self.chatroom_contacts: Dict[str, Person] = {}
+        # 公众账号
+        self.media_platforms: Dict[str, MediaPlatform] = {}
 
-    def _gen_uuid(self):
-        url = 'https://login.weixin.qq.com/jslogin'
-        params = {
-            'appid': 'wx782c26e4c19acffb',
-            'fun':   'new',
-            'lang':  'zh_CN',
-            '_':     int(time.time()),
-        }
+    @property
+    def sync_key(self):
+        return '|'.join(
+            [str(kv['Key']) + '_' + str(kv['Val']) for kv in self.sync_key_dic['List']])
 
-        r: HTMLResponse = self.session.get(url, params=params)
-        code, uuid = r.html.search('window.QRLogin.code = {}; window.QRLogin.uuid = "{}"')
-        if code == '200':
-            return uuid
-
-    def _print_qrcode(self):
-        qr = qrcode.QRCode()
-        qr.border = 1
-        qr.add_data('https://login.weixin.qq.com/l/' + self.uuid)
-        qr.make()
-        qr.print_ascii(invert=True)
-
-    def _get_qrcode_status(self, tip=1):
-        url = 'https://login.weixin.qq.com/cgi-bin/mmwebwx-bin/login?loginicon=true&tip=%s&uuid=%s&_=%s' % (
-            tip, self.uuid, int(time.time()))
-        r: HTMLResponse = self.session.get(url)
-        code = r.html.search('window.code={};')[0]
-        if code == '201':
-            return QRCodeStatus.SUCCESS
-        elif code == '200':
-            redirect_uri = r.html.search('window.redirect_uri="{}";')[0]
-            self.redirect_uri = redirect_uri + '&fun=new'
-            self.base_uri = redirect_uri[:redirect_uri.rfind('/')]
-            return QRCodeStatus.CONFIRM
-        elif code == '408':
-            return QRCodeStatus.WAITING
-        elif code == '400':
-            return QRCodeStatus.EXPIRED
-
-    def _login(self):
+    def wait_for_login(self) -> bool:
+        """
+        等待扫码登录
+        :return:
+        """
+        self.logger.info('生成uuid')
+        self.uuid = self.__gen_uuid()
+        self.logger.info('请扫描下方二维码')
+        # 控制台打印二维码
+        self.__print_login_qrcode(self.uuid)
+        # 等待扫码成功
+        self.__wait_until_scan_qrcode_success()
+        self.logger.info('扫码成功，登录中')
         xml = self.session.get(self.redirect_uri).text
         doc = minidom.parseString(xml)
         root = doc.documentElement
@@ -156,16 +92,33 @@ class WebWxClient:
             elif node.nodeName == 'pass_ticket':
                 self.pass_ticket = node.childNodes[0].data
 
-        if '' in (self.skey, self.sid, self.uin, self.pass_ticket):
-            return False
-
         self.base_request = {
             'Uin':      int(self.uin),
             'Sid':      self.sid,
             'Skey':     self.skey,
             'DeviceID': self.device_id
         }
+        self.logger.info('登录成功，进行初始化')
+        if not self._webwxinit():
+            self.logger.error('初始化失败')
+            return False
+        self.logger.info('开启状态通知')
+        if not self._webwxstatusnotify():
+            self.logger.error('开启状态通知失败')
+            return False
+        self.logger.info('获取联系人')
+        if not self._webwxgetcontact():
+            self.logger.error('获取联系人失败')
+            return False
+        self.logger.info('检查同步接口')
+        if not self.testsynccheck():
+            self.logger.error('检查同步接口失败')
+            return False
+        self.after_login()
         return True
+
+    def after_login(self):
+        pass
 
     def logout(self):
         url = self.base_uri + '/webwxlogout'
@@ -189,12 +142,10 @@ class WebWxClient:
         }
         dic = self.session.post(url, json=data).json()
         if dic['BaseResponse']['Ret'] != 0:
-            self.logger.error("webwxinit error: %s", dic['BaseResponse']['ErrMsg'])
+            self.logger.error(f"webwxinit error: {dic['BaseResponse']['ErrMsg']}")
             return False
         self.sync_key_dic = dic['SyncKey']
-        self.sync_key = '|'.join(
-            [str(kv['Key']) + '_' + str(kv['Val']) for kv in self.sync_key_dic['List']])
-        self.user = dic['User']
+        self.user = Person(dic['User'])
         return True
 
     def _webwxstatusnotify(self):
@@ -202,8 +153,8 @@ class WebWxClient:
         data = {
             'BaseRequest':  self.base_request,
             "Code":         3,
-            "FromUserName": self.user['UserName'],
-            "ToUserName":   self.user['UserName'],
+            "FromUserName": self.user.username,
+            "ToUserName":   self.user.username,
             "ClientMsgId":  int(time.time())
         }
         dic = self.session.post(url, json=data).json()
@@ -215,25 +166,26 @@ class WebWxClient:
         r = self.session.post(url)
         r.encoding = 'utf-8'
         dic = r.json()
-        if dic == '':
+        if dic['BaseResponse']['Ret'] != 0:
+            self.logger.error(f"webwxgetcontact error: {dic['BaseResponse']['ErrMsg']}")
             return False
 
-        member_list = dic['MemberList'][:]
+        member_list = reversed(dic['MemberList'])[:]
         for member in member_list:
             # 公众号/服务号
             if member['VerifyFlag'] & 8 != 0:
                 member_list.remove(member)
                 self.media_platforms[member['UserName']] = member
             # 特殊账号
-            elif member['UserName'] in self.builtin_special_users:
+            elif member['UserName'] in self.usernames_of_builtin_special_users:
                 member_list.remove(member)
                 self.special_users[member['UserName']] = member
             # 群聊
             elif '@@' in member['UserName']:
                 member_list.remove(member)
-                self.groups[member['UserName']] = member
+                self.chatrooms[member['UserName']] = member
             # 自己
-            elif member['UserName'] == self.user['UserName']:
+            elif member['UserName'] == self.user.username:
                 member_list.remove(member)
             else:
                 self.contacts[member['UserName']] = member
@@ -245,15 +197,15 @@ class WebWxClient:
             int(time.time()), self.pass_ticket)
         data = {
             'BaseRequest': self.base_request,
-            "Count":       len(self.group_contacts),
-            "List":        [{"UserName": u, "EncryChatRoomId": ""} for u in self.group_contacts]
+            "Count":       len(self.chatroom_contacts),
+            "List":        [{"UserName": u, "EncryChatRoomId": ""} for u in self.chatroom_contacts]
         }
         dic = self.session.post(url, json=data).json()
         if dic == '':
             return False
         for member in dic['ContactList']:
             for group_member in member['MemberList']:
-                self.group_contacts[group_member['UserName']] = group_member
+                self.chatroom_contacts[group_member['UserName']] = group_member
         return True
 
     def testsynccheck(self):
@@ -292,6 +244,7 @@ class WebWxClient:
         }
         url = 'https://' + self.sync_host + '/cgi-bin/mmwebwx-bin/synccheck?' + urlencode(params)
         r: HTMLResponse = self.session.get(url)
+        self.logger.info(r.content)
         if r.text == '':
             return [-1, -1]
 
@@ -308,6 +261,7 @@ class WebWxClient:
         }
         r = self.session.post(url, json=data)
         r.encoding = 'utf-8'
+        self.logger.info('收到消息:' + json.dumps(r.json()))
         return r.json()
 
     def get_sync_url(self):
@@ -325,14 +279,14 @@ class WebWxClient:
             return self.special_users[openid]['RemarkName']
         if openid in self.media_platforms:
             return self.media_platforms[openid]['RemarkName']
-        if openid in self.group_contacts:
-            member = self.group_contacts[openid]
+        if openid in self.chatroom_contacts:
+            member = self.chatroom_contacts[openid]
             return member['DisplayName'] if member['DisplayName'] else member['NickName']
 
     def get_nick_name(self, openid):
         # 自己
-        if openid == self.user['UserName']:
-            return self.user['NickName']
+        if openid == self.user.username:
+            return self.user.nickname
         # 群组
         name = ''
         if openid[:2] == '@@':
@@ -343,25 +297,25 @@ class WebWxClient:
             return self.special_users[openid]['NickName']
         if openid in self.media_platforms:
             return self.media_platforms[openid]['NickName']
-        if openid in self.group_contacts:
-            member = self.group_contacts[openid]
+        if openid in self.chatroom_contacts:
+            member = self.chatroom_contacts[openid]
             name = member['DisplayName'] if member['DisplayName'] else member['NickName']
         return name
 
     def get_group_name(self, openid):
-        if openid in self.groups:
-            return self.groups[openid]['NickName']
+        if openid in self.chatrooms:
+            return self.chatrooms[openid]['NickName']
         # 现有群里面查不到
         groups = self.get_name_by_request(openid)
         for group in groups:
             # 追加到群组列表
-            self.groups[group['UserName']] = group
+            self.chatrooms[group['UserName']] = group
             if group['UserName'] == openid:
                 name = group['NickName']
                 # 获取群名称的同时，缓存群组联系人列表
                 for member in group['MemberList']:
-                    self.group_contacts[member['UserName']] = member
-        return self.groups[openid]['NickName']
+                    self.chatroom_contacts[member['UserName']] = member
+        return self.chatrooms[openid]['NickName']
 
     def get_name_by_request(self, username):
         url = self.base_uri + '/webwxbatchgetcontact?type=ex&r=%s&pass_ticket=%s' % (
@@ -377,8 +331,6 @@ class WebWxClient:
         if res['BaseResponse']['Ret'] != 0:
             return
         self.sync_key_dic = res['SyncKey']
-        self.sync_key = '|'.join(
-            [str(kv['Key']) + '_' + str(kv['Val']) for kv in self.sync_key_dic['List']])
 
         for contact in res['ModContactList']:
             self.contacts[contact['UserName']] = contact
@@ -413,6 +365,7 @@ class WebWxClient:
                 self.handle_text(msg)
             # 图片消息
             elif msg_type == MsgType.IMAGE:
+                self.logger.info(f"图片消息: {msg['content']}")
                 self.handle_image(msg)
             # 语音消息
             elif msg_type == MsgType.VOICE:
@@ -525,7 +478,7 @@ class WebWxClient:
                     msg = self.webwxsync()
                     self.handle(msg)
                 else:
-                    self.logger.warning(f'未知selector: {selector}')
+                    self.logger.info(f'未知selector: {selector}')
             elif retcode == '1100':
                 self.logger.info('手动登出')
                 self.logout()
@@ -590,7 +543,7 @@ class WebWxClient:
             'Msg':         {
                 "Type":         MsgType.TEXT.value,
                 "Content":      content,
-                "FromUserName": self.user['UserName'],
+                "FromUserName": self.user.username,
                 "ToUserName":   to_username,
                 "LocalID":      client_msg_id,
                 "ClientMsgId":  client_msg_id
@@ -637,9 +590,9 @@ class WebWxClient:
                 'Type':         6,
                 'Content':      (
                                         "<appmsg appid='wxeb7ec651dd0aefa9' sdkver=''><title>%s</title><des></des><action></action><type>6</type><content></content><url></url><lowurl></lowurl><appattach><totallen>%s</totallen><attachid>%s</attachid><fileext>%s</fileext></appattach><extinfo></extinfo></appmsg>" % (
-                                    os.path.basename(file_name).encode('utf-8'), str(os.path.getsize(file_name)),
+                                    os.path.basename(file_name).encode(), str(os.path.getsize(file_name)),
                                     media_id,
-                                    file_name.split('.')[-1])).encode('utf8'),
+                                    file_name.split('.')[-1])).encode(),
                 'FromUserName': self.user['UserName'],
                 "ToUserName":   to_username,
                 "LocalID":      client_msg_id,
@@ -773,3 +726,64 @@ class WebWxClient:
     @staticmethod
     def _gen_client_msg_id():
         return str(int(time.time() * 1000)) + str(random.random())[:5].replace('.', '')
+
+    def __gen_uuid(self):
+        """
+        生成uuid
+        :return:
+        """
+        url = 'https://login.weixin.qq.com/jslogin'
+        params = {
+            'appid': 'wx782c26e4c19acffb',
+            'fun':   'new',
+            'lang':  'zh_CN',
+            '_':     int(time.time()),
+        }
+
+        r: HTMLResponse = self.session.get(url, params=params)
+        code, uuid = r.html.search('window.QRLogin.code = {}; window.QRLogin.uuid = "{}"')
+        if code == '200':
+            return uuid
+
+    @staticmethod
+    def __gen_device_id():
+        return 'e' + repr(random.random())[2:17]
+
+    @staticmethod
+    def __print_login_qrcode(uuid):
+        """
+        控制台打印二维码
+        :return:
+        """
+        qr = qrcode.QRCode()
+        qr.border = 1
+        qr.add_data(f'https://login.weixin.qq.com/l/{uuid}')
+        qr.make()
+        qr.print_ascii(invert=True)
+
+    def __get_qrcode_status(self, tip=1):
+        url = 'https://login.weixin.qq.com/cgi-bin/mmwebwx-bin/login?loginicon=true&tip=%s&uuid=%s&_=%s' % (
+            tip, self.uuid, int(time.time()))
+        r: HTMLResponse = self.session.get(url)
+        code = r.html.search('window.code={};')[0]
+        if code == '201':
+            return QRCodeStatus.SUCCESS
+        elif code == '200':
+            redirect_uri = r.html.search('window.redirect_uri="{}";')[0]
+            self.redirect_uri = redirect_uri + '&fun=new'
+            self.base_uri = redirect_uri[:redirect_uri.rfind('/')]
+            return QRCodeStatus.CONFIRM
+        elif code == '408':
+            return QRCodeStatus.WAITING
+        elif code == '400':
+            return QRCodeStatus.EXPIRED
+
+    def __wait_until_scan_qrcode_success(self):
+        status = QRCodeStatus.WAITING
+        while status != QRCodeStatus.CONFIRM:
+            # 判断用户是否扫码
+            while status != QRCodeStatus.EXPIRED and status != QRCodeStatus.SUCCESS:
+                status = self.__get_qrcode_status()
+            # 判断用户是否点击登录
+            while status != QRCodeStatus.EXPIRED and status != QRCodeStatus.CONFIRM:
+                status = self.__get_qrcode_status(0)

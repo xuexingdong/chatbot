@@ -29,3 +29,18 @@ class MsgType(IntEnum):
     BLOCKED = 10002
 
     UNHANDLED = -999
+
+
+@unique
+class VerifyFlag(IntEnum):
+    PERSON = 0
+    COMMON_MP = 8
+    ENTERPRISE_MP = 24
+    WECHAT = 56
+
+
+@unique
+class Sex(IntEnum):
+    UNKNOWN = 0
+    MALE = 1
+    FEMALE = 2

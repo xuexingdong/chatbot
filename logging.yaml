@@ -33,7 +33,7 @@ handlers:
 loggers:
     wechat:
         level: DEBUG
-        handlers: [console]
+        handlers: [console, info_file_handler]
         propagate: no
 
 root:

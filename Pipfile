@@ -13,6 +13,7 @@ redis = "*"
 PyYAML = "*"
 pika = "*"
 apscheduler = "*"
+pipreq = "*"
 
 [dev-packages]
 

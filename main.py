@@ -18,20 +18,33 @@ class CustomClient(WebWxClient):
     def __init__(self):
         super().__init__()
         self.r = StrictRedis(REDIS_HOST, REDIS_PORT, REDIS_DB)
-        self.r.delete(*self.r.keys('chatbot:*'))
-        # chatid代表微信网页版聊天时为用户分配的id
-        self.r.set('chatbot:self_chatid', self.user['UserName'])
+        keys = self.r.keys('chatbot:*')
+        if keys:
+            self.r.delete(*keys)
+
         self.conn = pika.BlockingConnection(pika.ConnectionParameters(RABBIT_HOST, RABBIT_PORT))
         self.receive_channel = self.conn.channel()
         self.receive_channel.queue_declare(queue=RECEIVE_QUEUE)
-        # 好友id列表
-        chatids = self.contacts.keys()
-        self.r.sadd('chatbot:chatids', chatids)
+
         # 定时维护rabbitmq心跳
         scheduler = BackgroundScheduler()
         scheduler.add_job(lambda conn: conn.process_data_events(), 'interval',
                           seconds=30, args=[self.conn])
         scheduler.start()
+
+    def after_login(self):
+        # 好友id列表
+        chatids = self.contacts.keys()
+        # 昵称映射到chatid
+        # chatid代表微信网页版聊天时为用户分配的id
+        self.r.set('chatbot:self_chatid', self.user.username)
+        remark_name_dict = {}
+        for username, contact in self.contacts.items():
+            remark_name_dict[contact.remark_name] = username
+        # 备注名
+        self.r.hmset('chatbot:remark_name', remark_name_dict)
+        self.r.set('chatbot:self_chatid', self.user.username)
+        self.r.set('chatbot:self_chatid', self.user.username)
 
     def handle_text(self, msg):
         self.logger.info(msg)
@@ -46,6 +59,9 @@ class CustomClient(WebWxClient):
         #         self._publish(msg)
         # else:
         #     self._publish(msg)
+
+    def _update_chatid(self):
+        pass
 
     def _publish(self, msg):
         self.receive_channel.basic_publish(exchange='', routing_key=RECEIVE_QUEUE,
@@ -64,7 +80,7 @@ def send(ch, method, properties, msg, webwx_client: WebWxClient):
         elif msg_type == MsgType.FILE:
             webwx_client.webwxsendappmsg(msg['to_username'], msg['content'])
     except Exception as e:
-        webwx_client.logger.error(e)
+        webwx_client.logger.info(e)
 
 
 def consume(webwx_client):
@@ -81,5 +97,6 @@ if __name__ == '__main__':
         config = yaml.safe_load(f.read())
     dictConfig(config)
     client = CustomClient()
-    threading.Thread(target=consume, args=[client]).start()
-    client.start_receiving()
+    if client.wait_for_login():
+        threading.Thread(target=consume, args=[client]).start()
+        client.start_receiving()
