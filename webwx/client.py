@@ -52,7 +52,7 @@ class WebWxClient:
         # 特殊账号
         self.special_users: Dict[str, Contact] = {}
         self.usernames_of_builtin_special_users = constants.BUILTIN_SPECIAL_USERS
-        # 所有列表
+        # 所有列表（也包括群聊里的人，所以此列表没有什么实际意义）
         self.contacts: Dict[str, Contact] = {}
         # 好友
         self.friends: Dict[str, Friend] = {}
@@ -67,6 +67,11 @@ class WebWxClient:
     def sync_key(self):
         return '|'.join(
             [str(kv['Key']) + '_' + str(kv['Val']) for kv in self.sync_key_dic['List']])
+
+    @property
+    def sync_url(self):
+        return self.base_uri + '/webwxsync?sid=%s&skey=%s&pass_ticket=%s' % (
+            self.sid, self.skey, self.pass_ticket)
 
     def wait_for_login(self) -> bool:
         """
@@ -197,11 +202,7 @@ class WebWxClient:
             # 群聊
             elif '@@' in contact['UserName']:
                 self.chatrooms[contact['UserName']] = ChatRoom(contact)
-                friends = self.webwxbatchgetcontact(
-                    [group_member['UserName'] for group_member in contact['MemberList']])
-                for friend in friends:
-                    self.contacts[friend.username] = friend
-                    self.chatroom_contacts[friend.username] = friend
+                self.webwxbatchgetcontact([group_member['UserName'] for group_member in contact['MemberList']])
             # 自己忽略
             elif contact['UserName'] == self.user.username:
                 self.contacts[self.user.username] = self.user
@@ -221,11 +222,14 @@ class WebWxClient:
         r = self.session.post(url, json=data)
         r.encoding = 'utf-8'
         dic = r.json()
-        friends = []
-        if dic['BaseResponse']['Ret'] == 0:
-            for member in dic['ContactList']:
-                friends.append(Friend(member))
-        return friends
+        if dic['BaseResponse']['Ret'] != 0:
+            self.logger.error(f"webwxbatchgetcontact error: {dic['BaseResponse']['ErrMsg']}")
+            return False
+        for member in dic['ContactList']:
+            friend = Friend(member)
+            self.contacts[friend.username] = friend
+            self.chatroom_contacts[friend.username] = friend
+        return True
 
     def testsynccheck(self):
         sync_hosts = ['wx2.qq.com',
@@ -283,68 +287,6 @@ class WebWxClient:
         self.logger.info('收到消息:' + json.dumps(r.json()))
         return r.json()
 
-    def get_sync_url(self):
-        return self.base_uri + '/webwxsync?sid=%s&skey=%s&pass_ticket=%s' % (
-            self.sid, self.skey, self.pass_ticket)
-
-    def get_remark_name(self, openid):
-        # 自己
-        if openid in self.friends:
-            return self.friends[openid].remark_name
-        # 群组的名字不算备注名，算昵称
-        if openid[:2] == '@@':
-            return ''
-        if openid in self.special_users:
-            return self.special_users[openid].remark_name
-        if openid in self.media_platforms:
-            return self.media_platforms[openid].remark_name
-        if openid in self.chatroom_contacts:
-            member = self.chatroom_contacts[openid]
-            return member.display_name if member.display_name else member.nickname
-
-    def get_nick_name(self, openid):
-        # 自己
-        if openid == self.user.username:
-            return self.user.nickname
-        # 群组
-        name = ''
-        if openid[:2] == '@@':
-            name = self.get_group_name(openid)
-        if openid in self.friends:
-            return self.friends[openid].nickname
-        if openid in self.special_users:
-            return self.special_users[openid].nickname
-        if openid in self.media_platforms:
-            return self.media_platforms[openid].nickname
-        if openid in self.chatroom_contacts:
-            member = self.chatroom_contacts[openid]
-            name = member.display_name if member.display_name else member.nickname
-        return name
-
-    def get_group_name(self, openid):
-        if openid in self.chatrooms:
-            return self.chatrooms[openid].nickname
-        # 现有群里面查不到
-        groups = self.get_name_by_request(openid)
-        for group in groups:
-            # 追加到群组列表
-            self.chatrooms[group['UserName']] = group
-            if group['UserName'] == openid:
-                # 获取群名称的同时，缓存群组联系人列表
-                for member in group['MemberList']:
-                    self.chatroom_contacts[member['UserName']] = Friend(member)
-        return self.chatrooms[openid].nickname
-
-    def get_name_by_request(self, username):
-        url = self.base_uri + '/webwxbatchgetcontact?type=ex&r=%s&pass_ticket=%s' % (
-            int(time.time()), self.pass_ticket)
-        data = {
-            'BaseRequest': self.base_request,
-            "Count":       1,
-            "List":        [{"UserName": username, "EncryChatRoomId": ""}]
-        }
-        return self.session.post(url, json=data).json()['ContactList']
-
     def handle(self, res):
         if res['BaseResponse']['Ret'] != 0:
             return
@@ -362,10 +304,13 @@ class WebWxClient:
                 self.logger.error('invalid msg type:{}', add_msg['MsgType'])
                 continue
 
-            # 反转义
-            content = html.unescape(add_msg['Content'])
+            # 消息来源找不到，则属于很久没聊天的群组，需要临时获取
+            if add_msg['FromUserName'] not in self.contacts:
+                self.webwxbatchgetcontact([add_msg['FromUserName']])
             msg = Msg(add_msg['MsgId'], self.contacts[add_msg['FromUserName']],
                       self.contacts[add_msg['ToUserName']])
+            # 反转义
+            content = html.unescape(add_msg['Content'])
             # 位置消息
             if content.find('&pictype=location') != -1:
                 msg = LocationMsg(msg, add_msg['Url'], content)
