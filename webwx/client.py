@@ -162,10 +162,10 @@ class WebWxClient:
         url = self.base_uri + '/webwxstatusnotify?lang=zh_CN&pass_ticket=%s' % self.pass_ticket
         data = {
             'BaseRequest':  self.base_request,
-            "Code":         3,
-            "FromUserName": self.user.username,
-            "ToUserName":   self.user.username,
-            "ClientMsgId":  int(time.time())
+            'Code':         3,
+            'FromUserName': self.user.username,
+            'ToUserName':   self.user.username,
+            'ClientMsgId':  int(time.time())
         }
         dic = self.session.post(url, json=data).json()
         return dic['BaseResponse']['Ret'] == 0
@@ -216,8 +216,8 @@ class WebWxClient:
             int(time.time()), self.pass_ticket)
         data = {
             'BaseRequest': self.base_request,
-            "Count":       len(username_list),
-            "List":        [{"UserName": u, "EncryChatRoomId": ""} for u in username_list]
+            'Count':       len(username_list),
+            'List':        [{'UserName': u, 'EncryChatRoomId': ""} for u in username_list]
         }
         r = self.session.post(url, json=data)
         r.encoding = 'utf-8'
@@ -424,9 +424,9 @@ class WebWxClient:
         params = {
             'BaseRequest': self.base_request,
             'Msg':         {
-                "ToUserName":  to_username,
-                "SvrMsgId":    msgid,
-                "ClientMsgId": msgid
+                'ToUserName':  to_username,
+                'SvrMsgId':    msgid,
+                'ClientMsgId': msgid
             }
         }
         headers = {'content-type': 'application/json;charset=UTF-8'}
@@ -441,12 +441,12 @@ class WebWxClient:
         params = {
             'BaseRequest': self.base_request,
             'Msg':         {
-                "Type":         MsgType.TEXT.value,
-                "Content":      content,
-                "FromUserName": self.user.username,
-                "ToUserName":   to_username,
-                "LocalID":      client_msg_id,
-                "ClientMsgId":  client_msg_id
+                'Type':         MsgType.TEXT.value,
+                'Content':      content,
+                'FromUserName': self.user.username,
+                'ToUserName':   to_username,
+                'LocalID':      client_msg_id,
+                'ClientMsgId':  client_msg_id
             }
         }
         headers = {'content-type': 'application/json;charset=UTF-8'}
@@ -462,14 +462,14 @@ class WebWxClient:
         url = self.base_uri + '/webwxsendmsgimg?fun=async&f=json&pass_ticket=%s' % self.pass_ticket
         client_msg_id = self._gen_client_msg_id()
         params = {
-            "BaseRequest": self.base_request,
-            "Msg":         {
-                "Type":         3,
-                "MediaId":      media_id,
-                "FromUserName": self.user.username,
-                "ToUserName":   to_username,
-                "LocalID":      client_msg_id,
-                "ClientMsgId":  client_msg_id
+            'BaseRequest': self.base_request,
+            'Msg':         {
+                'Type':         3,
+                'MediaId':      media_id,
+                'FromUserName': self.user.username,
+                'ToUserName':   to_username,
+                'LocalID':      client_msg_id,
+                'ClientMsgId':  client_msg_id
             }
         }
         headers = {'content-type': 'application/json;charset=UTF-8'}
@@ -494,9 +494,9 @@ class WebWxClient:
                                     media_id,
                                     file_name.split('.')[-1])).encode(),
                 'FromUserName': self.user.username,
-                "ToUserName":   to_username,
-                "LocalID":      client_msg_id,
-                "ClientMsgId":  client_msg_id
+                'ToUserName':   to_username,
+                'LocalID':      client_msg_id,
+                'ClientMsgId':  client_msg_id
             }
         }
         data = json.dumps(params, ensure_ascii=False).encode()
@@ -526,12 +526,12 @@ class WebWxClient:
         webwx_data_ticket = self.session.cookies['webwx_data_ticket']
 
         uploadmediarequest = json.dumps({
-            "BaseRequest":   self.base_request,
-            "ClientMediaId": client_media_id,
-            "TotalLen":      file_size,
-            "StartPos":      0,
-            "DataLen":       file_size,
-            "MediaType":     4
+            'BaseRequest':   self.base_request,
+            'ClientMediaId': client_media_id,
+            'TotalLen':      file_size,
+            'StartPos':      0,
+            'DataLen':       file_size,
+            'MediaType':     4
         }, ensure_ascii=False).encode()
 
         # 计数器
