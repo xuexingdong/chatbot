@@ -5,7 +5,7 @@ import mimetypes
 import os
 import random
 import time
-from abc import abstractmethod, ABC
+from abc import abstractmethod
 from typing import Dict
 from urllib.parse import urlencode
 from xml.dom import minidom
@@ -18,10 +18,10 @@ from requests_toolbelt import MultipartEncoder
 
 from webwx import constants
 from webwx.enums import MsgType, QRCodeStatus
-from webwx.models import Person, ChatRoom, MediaPlatform, Contact
+from webwx.models import Friend, ChatRoom, MediaPlatform, Contact, SpecialUser, TextMsg, LocationMsg, ImageMsg, Msg
 
 
-class WebWxClient(ABC):
+class WebWxClient:
     logger = logging.getLogger(__name__)
 
     __login_status = False
@@ -48,16 +48,18 @@ class WebWxClient(ABC):
         self.sync_key_dic = {}
         self.sync_host = ''
 
-        self.user: Person = None
+        self.user: Friend = None
         # 特殊账号
         self.special_users: Dict[str, Contact] = {}
         self.usernames_of_builtin_special_users = constants.BUILTIN_SPECIAL_USERS
+        # 所有列表
+        self.contacts: Dict[str, Contact] = {}
         # 好友
-        self.contacts: Dict[str, Person] = {}
+        self.friends: Dict[str, Friend] = {}
         # 群组
         self.chatrooms: Dict[str, ChatRoom] = {}
         # 群友
-        self.chatroom_contacts: Dict[str, Person] = {}
+        self.chatroom_contacts: Dict[str, Friend] = {}
         # 公众账号
         self.media_platforms: Dict[str, MediaPlatform] = {}
 
@@ -140,12 +142,15 @@ class WebWxClient(ABC):
         data = {
             'BaseRequest': self.base_request
         }
-        dic = self.session.post(url, json=data).json()
+        r = self.session.post(url, json=data)
+        r.encoding = 'utf-8'
+        dic = r.json()
         if dic['BaseResponse']['Ret'] != 0:
             self.logger.error(f"webwxinit error: {dic['BaseResponse']['ErrMsg']}")
             return False
         self.sync_key_dic = dic['SyncKey']
-        self.user = Person(dic['User'])
+        self.user = Friend(dic['User'])
+        self._parse_contacts_json(dic['ContactList'])
         return True
 
     def _webwxstatusnotify(self):
@@ -170,43 +175,57 @@ class WebWxClient(ABC):
             self.logger.error(f"webwxgetcontact error: {dic['BaseResponse']['ErrMsg']}")
             return False
 
-        member_list = reversed(dic['MemberList'])[:]
-        for member in member_list:
-            # 公众号/服务号
-            if member['VerifyFlag'] & 8 != 0:
-                member_list.remove(member)
-                self.media_platforms[member['UserName']] = member
-            # 特殊账号
-            elif member['UserName'] in self.usernames_of_builtin_special_users:
-                member_list.remove(member)
-                self.special_users[member['UserName']] = member
-            # 群聊
-            elif '@@' in member['UserName']:
-                member_list.remove(member)
-                self.chatrooms[member['UserName']] = member
-            # 自己
-            elif member['UserName'] == self.user.username:
-                member_list.remove(member)
-            else:
-                self.contacts[member['UserName']] = member
+        member_list = dic['MemberList'][:]
+        self._parse_contacts_json(member_list)
         return True
 
+    def _parse_contacts_json(self, contacts_json):
+        """
+        解析联系人json
+        :param contacts_json:
+        :return:
+        """
+        for contact in contacts_json:
+            # 丢入联系人
+            self.contacts[contact['UserName']] = Contact(contact)
+            # 公众号/服务号
+            if contact['VerifyFlag'] & 8 != 0:
+                self.media_platforms[contact['UserName']] = MediaPlatform(contact)
+            # 特殊账号
+            elif contact['UserName'] in self.usernames_of_builtin_special_users:
+                self.special_users[contact['UserName']] = SpecialUser(contact)
+            # 群聊
+            elif '@@' in contact['UserName']:
+                self.chatrooms[contact['UserName']] = ChatRoom(contact)
+                friends = self.webwxbatchgetcontact(
+                    [group_member['UserName'] for group_member in contact['MemberList']])
+                for friend in friends:
+                    self.contacts[friend.username] = friend
+                    self.chatroom_contacts[friend.username] = friend
+            # 自己忽略
+            elif contact['UserName'] == self.user.username:
+                self.contacts[self.user.username] = self.user
+            # 其他情况为朋友
+            else:
+                self.friends[contact['UserName']] = Friend(contact)
+
     # 批量获取群内联系人
-    def webwxbatchgetcontact(self):
+    def webwxbatchgetcontact(self, username_list):
         url = self.base_uri + '/webwxbatchgetcontact?type=ex&r=%s&pass_ticket=%s' % (
             int(time.time()), self.pass_ticket)
         data = {
             'BaseRequest': self.base_request,
-            "Count":       len(self.chatroom_contacts),
-            "List":        [{"UserName": u, "EncryChatRoomId": ""} for u in self.chatroom_contacts]
+            "Count":       len(username_list),
+            "List":        [{"UserName": u, "EncryChatRoomId": ""} for u in username_list]
         }
-        dic = self.session.post(url, json=data).json()
-        if dic == '':
-            return False
-        for member in dic['ContactList']:
-            for group_member in member['MemberList']:
-                self.chatroom_contacts[group_member['UserName']] = group_member
-        return True
+        r = self.session.post(url, json=data)
+        r.encoding = 'utf-8'
+        dic = r.json()
+        friends = []
+        if dic['BaseResponse']['Ret'] == 0:
+            for member in dic['ContactList']:
+                friends.append(Friend(member))
+        return friends
 
     def testsynccheck(self):
         sync_hosts = ['wx2.qq.com',
@@ -270,18 +289,18 @@ class WebWxClient(ABC):
 
     def get_remark_name(self, openid):
         # 自己
-        if openid in self.contacts:
-            return self.contacts[openid]['RemarkName']
+        if openid in self.friends:
+            return self.friends[openid].remark_name
         # 群组的名字不算备注名，算昵称
         if openid[:2] == '@@':
             return ''
         if openid in self.special_users:
-            return self.special_users[openid]['RemarkName']
+            return self.special_users[openid].remark_name
         if openid in self.media_platforms:
-            return self.media_platforms[openid]['RemarkName']
+            return self.media_platforms[openid].remark_name
         if openid in self.chatroom_contacts:
             member = self.chatroom_contacts[openid]
-            return member['DisplayName'] if member['DisplayName'] else member['NickName']
+            return member.display_name if member.display_name else member.nickname
 
     def get_nick_name(self, openid):
         # 自己
@@ -291,31 +310,30 @@ class WebWxClient(ABC):
         name = ''
         if openid[:2] == '@@':
             name = self.get_group_name(openid)
-        if openid in self.contacts:
-            return self.contacts[openid]['NickName']
+        if openid in self.friends:
+            return self.friends[openid].nickname
         if openid in self.special_users:
-            return self.special_users[openid]['NickName']
+            return self.special_users[openid].nickname
         if openid in self.media_platforms:
-            return self.media_platforms[openid]['NickName']
+            return self.media_platforms[openid].nickname
         if openid in self.chatroom_contacts:
             member = self.chatroom_contacts[openid]
-            name = member['DisplayName'] if member['DisplayName'] else member['NickName']
+            name = member.display_name if member.display_name else member.nickname
         return name
 
     def get_group_name(self, openid):
         if openid in self.chatrooms:
-            return self.chatrooms[openid]['NickName']
+            return self.chatrooms[openid].nickname
         # 现有群里面查不到
         groups = self.get_name_by_request(openid)
         for group in groups:
             # 追加到群组列表
             self.chatrooms[group['UserName']] = group
             if group['UserName'] == openid:
-                name = group['NickName']
                 # 获取群名称的同时，缓存群组联系人列表
                 for member in group['MemberList']:
-                    self.chatroom_contacts[member['UserName']] = member
-        return self.chatrooms[openid]['NickName']
+                    self.chatroom_contacts[member['UserName']] = Friend(member)
+        return self.chatrooms[openid].nickname
 
     def get_name_by_request(self, username):
         url = self.base_uri + '/webwxbatchgetcontact?type=ex&r=%s&pass_ticket=%s' % (
@@ -331,42 +349,34 @@ class WebWxClient(ABC):
         if res['BaseResponse']['Ret'] != 0:
             return
         self.sync_key_dic = res['SyncKey']
-
-        for contact in res['ModContactList']:
-            self.contacts[contact['UserName']] = contact
+        if res['ModContactList']:
+            # 好友信息更新
+            self._parse_contacts_json(res['ModContactList'])
+            self.handle_modify_contacts(list(map(lambda x: x['UserName'], res['ModContactList'])))
 
         # 遍历追加的消息
         for add_msg in res['AddMsgList']:
             try:
                 msg_type = MsgType(int(add_msg['MsgType']))
             except ValueError:
-                return
-            msg = {
-                'msg_id':           add_msg['MsgId'],
-                'msg_type':         msg_type,
-                'from_username':    add_msg['FromUserName'],
-                'to_username':      add_msg['ToUserName'],
-                'from_nickname':    self.get_nick_name(add_msg['FromUserName']),
-                'to_nickname':      self.get_nick_name(add_msg['ToUserName']),
-                'from_remark_name': self.get_remark_name(add_msg['FromUserName']),
-                'to_remark_name':   self.get_remark_name(add_msg['ToUserName']),
-                'create_time':      arrow.get(add_msg['CreateTime']).to('local').format('YYYY-MM-DD HH:mm:ss')
-            }
+                self.logger.error('invalid msg type:{}', add_msg['MsgType'])
+                continue
+
             # 反转义
             content = html.unescape(add_msg['Content'])
+            msg = Msg(add_msg['MsgId'], self.contacts[add_msg['FromUserName']],
+                      self.contacts[add_msg['ToUserName']])
             # 位置消息
             if content.find('&pictype=location') != -1:
-                msg['url'] = add_msg['Url']
-                msg['content'] = content
+                msg = LocationMsg(msg, add_msg['Url'], content)
                 self.handle_location(msg)
-            # 文字消息
             elif msg_type == MsgType.TEXT:
-                msg['content'] = content
+                msg = TextMsg(msg, content)
                 self.handle_text(msg)
             # 图片消息
             elif msg_type == MsgType.IMAGE:
-                self.logger.info(f"图片消息: {msg['content']}")
-                self.handle_image(msg)
+                msg = ImageMsg(msg, content)
+                self.handle_text(msg)
             # 语音消息
             elif msg_type == MsgType.VOICE:
                 self.handle_voice(msg)
@@ -379,69 +389,9 @@ class WebWxClient(ABC):
             # 获取联系人信息
             elif msg_type == MsgType.GET_CONTACTS_INFO:
                 self.handle_sync_contacts(msg)
-                pass
             # 撤回消息
             elif msg_type == MsgType.BLOCKED:
                 pass
-            # 名片消息
-            # 表情消息
-            # 分享链接
-            # elif msg_type == MsgType.CARD:
-            #     info = msg['RecommendInfo']
-            #     print('%s 发送了一张名片:' % name)
-            #     print('=========================')
-            #     print('= 昵称: %s' % info['NickName'])
-            #     print('= 微信号: %s' % info['Alias'])
-            #     print('= 地区: %s %s' % (info['Province'], info['City']))
-            #     print('= 性别: %s' % ['未知', '男', '女'][info['Sex']])
-            #     print('=========================')
-            #     raw_msg = {'raw_msg': msg, 'message': '%s 发送了一张名片: %s' % (
-            #         name.strip(), json.dumps(info))}
-            #     self._showMsg(raw_msg)
-            # elif msg_type == MsgType.EMOTION:
-            #     url = self._searchContent('cdnurl', content)
-            #     raw_msg = {'raw_msg': msg,
-            #                'message': '%s 发了一个动画表情，点击下面链接查看: %s' % (name, url)}
-            #     self._showMsg(raw_msg)
-            #     self._safe_open(url)
-            # elif msg_type == MsgType.LINK:
-            #     appMsgType = defaultdict(lambda: "")
-            #     appMsgType.update({5: '链接', 3: '音乐', 7: '微博'})
-            #     print('%s 分享了一个%s:' % (name, appMsgType[msg['AppMsgType']]))
-            #     print('=========================')
-            #     print('= 标题: %s' % msg['FileName'])
-            #     print('= 描述: %s' % self._searchContent('des', content, 'xml'))
-            #     print('= 链接: %s' % msg['Url'])
-            #     print('= 来自: %s' % self._searchContent('appname', content, 'xml'))
-            #     print('=========================')
-            #     card = {
-            #         'title': msg['FileName'],
-            #         'description': self._searchContent('des', content, 'xml'),
-            #         'url': msg['Url'],
-            #         'appname': self._searchContent('appname', content, 'xml')
-            #     }
-            #     raw_msg = {'raw_msg': msg, 'message': '%s 分享了一个%s: %s' % (
-            #         name, appMsgType[msg['AppMsgType']], json.dumps(card))}
-            #     self._showMsg(raw_msg)
-            # elif msgType == 51:
-            #     raw_msg = {'raw_msg': msg, 'message': '[*] 成功获取联系人信息'}
-            #     self._showMsg(raw_msg)
-            # elif msgType == 62:
-            #     video = self.webwxgetvideo(msgid)
-            #     raw_msg = {'raw_msg': msg,
-            #                'message': '%s 发了一段小视频: %s' % (name, video)}
-            #     self._showMsg(raw_msg)
-            #     self._safe_open(video)
-            # elif msgType == 10002:
-            #     raw_msg = {'raw_msg': msg, 'message': '%s 撤回了一条消息' % name}
-            #     self._showMsg(raw_msg)
-            # else:
-            #     self.loggerdebug('[*] 该消息类型为: %d，可能是表情，图片, 链接或红包: %s' %
-            #                   (msg['MsgType'], json.dumps(msg)))
-            #     raw_msg = {
-            #         'raw_msg': msg, 'message': '[*] 该消息类型为: %d，可能是表情，图片, 链接或红包' % msg['MsgType']}
-            #     self._showMsg(raw_msg)
-            pass
 
     def start_receiving(self):
         self.logger.info('开始监听消息')
@@ -505,7 +455,12 @@ class WebWxClient(ABC):
         return self.session.get(url).content
 
     def webwxoplog(self, to_username, remark_name):
-        """设置备注名"""
+        """
+        设置备注名
+        :param to_username:
+        :param remark_name:
+        :return:
+        """
         url = self.base_uri + '/webwxoplog?pass_ticket=%s' % self.pass_ticket
         params = {
             'BaseRequest': self.base_request,
@@ -566,7 +521,7 @@ class WebWxClient(ABC):
             "Msg":         {
                 "Type":         3,
                 "MediaId":      media_id,
-                "FromUserName": self.user['UserName'],
+                "FromUserName": self.user.username,
                 "ToUserName":   to_username,
                 "LocalID":      client_msg_id,
                 "ClientMsgId":  client_msg_id
@@ -593,7 +548,7 @@ class WebWxClient(ABC):
                                     os.path.basename(file_name).encode(), str(os.path.getsize(file_name)),
                                     media_id,
                                     file_name.split('.')[-1])).encode(),
-                'FromUserName': self.user['UserName'],
+                'FromUserName': self.user.username,
                 "ToUserName":   to_username,
                 "LocalID":      client_msg_id,
                 "ClientMsgId":  client_msg_id
@@ -709,6 +664,10 @@ class WebWxClient(ABC):
 
     @abstractmethod
     def handle_sync_contacts(self, msg):
+        pass
+
+    @abstractmethod
+    def handle_modify_contacts(self, username_list):
         pass
 
     @abstractmethod
