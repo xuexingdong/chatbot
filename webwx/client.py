@@ -202,7 +202,9 @@ class WebWxClient:
             # 群聊
             elif '@@' in contact['UserName']:
                 self.chatrooms[contact['UserName']] = ChatRoom(contact)
-                self.webwxbatchgetcontact([group_member['UserName'] for group_member in contact['MemberList']])
+                # 不为空才传进去（为空可能也是因为太久没访问了）
+                if contact['MemberList']:
+                    self.webwxbatchgetcontact([group_member['UserName'] for group_member in contact['MemberList']])
             # 自己忽略
             elif contact['UserName'] == self.user.username:
                 self.contacts[self.user.username] = self.user
@@ -210,8 +212,14 @@ class WebWxClient:
             else:
                 self.friends[contact['UserName']] = Friend(contact)
 
-    # 批量获取群内联系人
     def webwxbatchgetcontact(self, username_list):
+        """
+        批量获取联系人信息，列表为空会报错
+        :param username_list:
+        :return:
+        """
+        if not username_list:
+            return True
         url = self.base_uri + '/webwxbatchgetcontact?type=ex&r=%s&pass_ticket=%s' % (
             int(time.time()), self.pass_ticket)
         data = {
@@ -267,7 +275,7 @@ class WebWxClient:
         }
         url = 'https://' + self.sync_host + '/cgi-bin/mmwebwx-bin/synccheck?' + urlencode(params)
         r: HTMLResponse = self.session.get(url)
-        self.logger.info(r.content)
+        self.logger.debug(r.content)
         if r.text == '':
             return [-1, -1]
 
@@ -344,7 +352,7 @@ class WebWxClient:
             retcode, selector = self.synccheck()
             if retcode == '0':
                 if selector == '0':
-                    self.logger.info('无新消息')
+                    self.logger.debug('无新消息')
                 elif selector == '1':
                     self.logger.info('未知1')
                     msg = self.webwxsync()

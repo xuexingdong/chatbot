@@ -31,11 +31,11 @@ handlers:
         encoding: utf8
 
 loggers:
-    wechat:
-        level: DEBUG
+    webwx.client:
+        level: INFO
         handlers: [console, info_file_handler]
         propagate: no
 
 root:
-    level: INFO
-    handlers: [console, info_file_handler]
+  level: ERROR
+  handlers: [console, error_file_handler]
