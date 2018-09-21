@@ -57,20 +57,22 @@ class CustomClient(WebWxClient):
             self.r.hmset('chatbot:remark_name_username_mapping', remark_name_dict)
 
     def handle_text(self, msg):
-        self.logger.info(msg)
+        self.logger.info(msg.to_json())
         self._publish(msg)
 
     def handle_modify_contacts(self, username_list):
         for username in username_list:
-            self.r.hset('chatbot:remark_name_username_mapping', self.friends[username].remark_name, username)
-            old_remark_name = self.r.hget('chatbot:username_remark_name_mapping', username)
-            # 旧备注删掉
-            self.r.hdel('chatbot:remark_name_username_mapping', old_remark_name)
-            self.r.hset('chatbot:username_remark_name_mapping', username, self.friends[username].remark_name)
+            # 好友才进行备注处理，排除掉群组和其他奇怪的账号
+            if username in self.friends:
+                self.r.hset('chatbot:remark_name_username_mapping', self.friends[username].remark_name, username)
+                old_remark_name = self.r.hget('chatbot:username_remark_name_mapping', username)
+                # 旧备注删掉
+                self.r.hdel('chatbot:remark_name_username_mapping', old_remark_name)
+                self.r.hset('chatbot:username_remark_name_mapping', username, self.friends[username].remark_name)
 
     def _publish(self, msg):
         self.receive_channel.basic_publish(exchange='', routing_key=RECEIVE_QUEUE,
-                                           body=json.dumps(msg, ensure_ascii=False))
+                                           body=json.dumps(msg.to_json()))
 
     @staticmethod
     def _gen_remark_name(nickname):

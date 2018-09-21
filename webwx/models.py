@@ -48,6 +48,18 @@ class Msg:
         self.to_user = to_user
         self.msg_type = msg_type
 
+    def to_json(self):
+        return {
+            'msg_id':           self.msg_id,
+            'msg_type':         self.msg_type,
+            'from_username':    self.from_user.username,
+            'to_username':      self.to_user.username,
+            'from_nickname':    self.from_user.nickname,
+            'to_nickname':      self.to_user.nickname,
+            'from_remark_name': self.from_user.remark_name,
+            'to_remark_name':   self.to_user.remark_name,
+        }
+
 
 class LocationMsg(Msg):
     def __init__(self, msg: Msg, url, content):
@@ -55,14 +67,36 @@ class LocationMsg(Msg):
         self.url = url
         self.content = content
 
+    def to_json(self):
+        dic = super().to_json()
+        dic.update({
+            'url':     self.url,
+            'content': self.content
+        })
+        return dic
+
 
 class TextMsg(Msg):
     def __init__(self, msg: Msg, content):
-        super().__init__(msg.msg_id, msg.from_user, msg.to_user, MsgType.LOCATION)
+        super().__init__(msg.msg_id, msg.from_user, msg.to_user, MsgType.TEXT)
         self.content = content
+
+    def to_json(self):
+        dic = super().to_json()
+        dic.update({
+            'content': self.content
+        })
+        return dic
 
 
 class ImageMsg(Msg):
     def __init__(self, msg: Msg, content):
         super().__init__(msg.msg_id, msg.from_user, msg.to_user, MsgType.IMAGE)
         self.content = content
+
+    def to_json(self):
+        dic = super().to_json()
+        dic.update({
+            'content': self.content
+        })
+        return dic

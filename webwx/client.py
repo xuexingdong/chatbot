@@ -345,6 +345,61 @@ class WebWxClient:
             # 撤回消息
             elif msg_type == MsgType.BLOCKED:
                 pass
+            # elif msg_type == MsgType.CARD:
+            #     info = msg['RecommendInfo']
+            #     print('%s 发送了一张名片:' % name)
+            #     print('=========================')
+            #     print('= 昵称: %s' % info['NickName'])
+            #     print('= 微信号: %s' % info['Alias'])
+            #     print('= 地区: %s %s' % (info['Province'], info['City']))
+            #     print('= 性别: %s' % ['未知', '男', '女'][info['Sex']])
+            #     print('=========================')
+            #     raw_msg = {'raw_msg': msg, 'message': '%s 发送了一张名片: %s' % (
+            #         name.strip(), json.dumps(info))}
+            #     self._showMsg(raw_msg)
+            # elif msg_type == MsgType.EMOTION:
+            #     url = self._searchContent('cdnurl', content)
+            #     raw_msg = {'raw_msg': msg,
+            #                'message': '%s 发了一个动画表情，点击下面链接查看: %s' % (name, url)}
+            #     self._showMsg(raw_msg)
+            #     self._safe_open(url)
+            # elif msg_type == MsgType.LINK:
+            #     appMsgType = defaultdict(lambda: "")
+            #     appMsgType.update({5: '链接', 3: '音乐', 7: '微博'})
+            #     print('%s 分享了一个%s:' % (name, appMsgType[msg['AppMsgType']]))
+            #     print('=========================')
+            #     print('= 标题: %s' % msg['FileName'])
+            #     print('= 描述: %s' % self._searchContent('des', content, 'xml'))
+            #     print('= 链接: %s' % msg['Url'])
+            #     print('= 来自: %s' % self._searchContent('appname', content, 'xml'))
+            #     print('=========================')
+            #     card = {
+            #         'title': msg['FileName'],
+            #         'description': self._searchContent('des', content, 'xml'),
+            #         'url': msg['Url'],
+            #         'appname': self._searchContent('appname', content, 'xml')
+            #     }
+            #     raw_msg = {'raw_msg': msg, 'message': '%s 分享了一个%s: %s' % (
+            #         name, appMsgType[msg['AppMsgType']], json.dumps(card))}
+            #     self._showMsg(raw_msg)
+            # elif msgType == 51:
+            #     raw_msg = {'raw_msg': msg, 'message': '[*] 成功获取联系人信息'}
+            #     self._showMsg(raw_msg)
+            # elif msgType == 62:
+            #     video = self.webwxgetvideo(msgid)
+            #     raw_msg = {'raw_msg': msg,
+            #                'message': '%s 发了一段小视频: %s' % (name, video)}
+            #     self._showMsg(raw_msg)
+            #     self._safe_open(video)
+            # elif msgType == 10002:
+            #     raw_msg = {'raw_msg': msg, 'message': '%s 撤回了一条消息' % name}
+            #     self._showMsg(raw_msg)
+            # else:
+            #     self.loggerdebug('[*] 该消息类型为: %d，可能是表情，图片, 链接或红包: %s' %
+            #                   (msg['MsgType'], json.dumps(msg)))
+            #     raw_msg = {
+            #         'raw_msg': msg, 'message': '[*] 该消息类型为: %d，可能是表情，图片, 链接或红包' % msg['MsgType']}
+            #     self._showMsg(raw_msg)
 
     def start_receiving(self):
         self.logger.info('开始监听消息')
