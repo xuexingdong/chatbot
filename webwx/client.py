@@ -6,6 +6,7 @@ import os
 import random
 import time
 from abc import abstractmethod
+from http.client import BadStatusLine
 from typing import Dict
 from urllib.parse import urlencode
 from xml.dom import minidom
@@ -274,7 +275,12 @@ class WebWxClient:
             '_':        int(time.time()),
         }
         url = 'https://' + self.sync_host + '/cgi-bin/mmwebwx-bin/synccheck?' + urlencode(params)
-        r: HTMLResponse = self.session.get(url)
+        try:
+            r: HTMLResponse = self.session.get(url)
+        except BadStatusLine as _:
+            # 同步时频率过高可能出错，出错后就等三秒吧
+            time.sleep(3)
+            return [-1, -1]
         self.logger.debug(r.content)
         if r.text == '':
             return [-1, -1]

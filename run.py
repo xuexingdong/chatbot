@@ -22,7 +22,6 @@ class CustomClient(WebWxClient):
         keys = self.r.keys('chatbot:*')
         if keys:
             self.r.delete(*keys)
-
         self.conn = pika.BlockingConnection(pika.ConnectionParameters(RABBIT_HOST, RABBIT_PORT))
         self.receive_channel = self.conn.channel()
         self.receive_channel.queue_declare(queue=RECEIVE_QUEUE)
