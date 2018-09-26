@@ -278,7 +278,7 @@ class WebWxClient:
         try:
             r: HTMLResponse = self.session.get(url)
         except BadStatusLine as _:
-            # 同步时频率过高可能出错，出错后就等三秒吧
+            # 对方正在输入，会有这个问题
             time.sleep(3)
             return [-1, -1]
         self.logger.debug(r.content)
@@ -296,12 +296,19 @@ class WebWxClient:
             'SyncKey':     self.sync_key_dic,
             'rr':          ~int(time.time())
         }
-        r = self.session.post(url, json=data)
+        try:
+            r = self.session.post(url, json=data)
+        except BadStatusLine as _:
+            # 同步消息错误
+            time.sleep(3)
+            return
         r.encoding = 'utf-8'
         self.logger.info('收到消息:' + json.dumps(r.json()))
         return r.json()
 
     def handle(self, res):
+        if not res:
+            return
         if res['BaseResponse']['Ret'] != 0:
             return
         self.sync_key_dic = res['SyncKey']
@@ -451,7 +458,7 @@ class WebWxClient:
                 self.logout()
             elif retcode == '1102':
                 self.logger.info('1102')
-                self.testsynccheck()
+                break
             else:
                 self.logger.warning(f'未知retcode: {retcode}')
 

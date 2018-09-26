@@ -18,7 +18,7 @@ class CustomClient(WebWxClient):
 
     def __init__(self):
         super().__init__()
-        self.r = StrictRedis(REDIS_HOST, REDIS_PORT, REDIS_DB)
+        self.r = StrictRedis(REDIS_HOST, REDIS_PORT, REDIS_DB, decode_responses=True)
         keys = self.r.keys('chatbot:*')
         if keys:
             self.r.delete(*keys)
@@ -57,7 +57,7 @@ class CustomClient(WebWxClient):
 
     def handle_text(self, msg):
         self.logger.info(msg.to_json())
-        self._publish(msg)
+        # self._publish(msg)
 
     def handle_modify_contacts(self, username_list):
         for username in username_list:
