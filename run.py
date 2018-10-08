@@ -29,7 +29,7 @@ class CustomClient(WebWxClient):
         # 定时维护rabbitmq心跳
         scheduler = BackgroundScheduler()
         scheduler.add_job(lambda conn: conn.process_data_events(), 'interval',
-                          seconds=30, args=[self.conn])
+                          seconds=10, args=[self.conn])
         scheduler.start()
 
     def after_login(self):
@@ -57,7 +57,7 @@ class CustomClient(WebWxClient):
 
     def handle_text(self, msg):
         self.logger.info(msg.to_json())
-        # self._publish(msg)
+        self._publish(msg)
 
     def handle_modify_contacts(self, username_list):
         for username in username_list:
@@ -90,7 +90,7 @@ def send(ch, method, properties, msg, webwx_client: WebWxClient):
         elif msg_type == MsgType.FILE:
             webwx_client.webwxsendappmsg(msg['to_username'], msg['content'])
     except Exception as e:
-        webwx_client.logger.info(e)
+        webwx_client.logger.error(e)
 
 
 def consume(webwx_client):

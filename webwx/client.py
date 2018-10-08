@@ -4,9 +4,9 @@ import logging
 import mimetypes
 import os
 import random
+import re
 import time
 from abc import abstractmethod
-from http.client import BadStatusLine
 from typing import Dict
 from urllib.parse import urlencode
 from xml.dom import minidom
@@ -14,8 +14,10 @@ from xml.dom import minidom
 import arrow
 import qrcode
 import requests
+import urllib3
 from requests_html import HTMLResponse, HTMLSession
 from requests_toolbelt import MultipartEncoder
+from urllib3.exceptions import InsecureRequestWarning
 
 from webwx import constants
 from webwx.enums import MsgType, QRCodeStatus
@@ -29,6 +31,8 @@ class WebWxClient:
 
     def __init__(self):
         self.session = HTMLSession()
+        self.session.verify = False
+        urllib3.disable_warnings(InsecureRequestWarning)
         self.session.headers = {
             'User-Agent': constants.USER_AGENT
         }
@@ -74,6 +78,17 @@ class WebWxClient:
         return self.base_uri + '/webwxsync?sid=%s&skey=%s&pass_ticket=%s' % (
             self.sid, self.skey, self.pass_ticket)
 
+    def relogin(self):
+        r = self.session.get('https://login.weixin.qq.com/cgi-bin/mmwebwx-bin/webwxpushloginurl?uin=' + self.uin)
+        res = r.json()
+        if res['ret'] == 0:
+            self.uuid = res['uuid']
+            # 替换掉redirect_uri中的uuid
+            self.redirect_uri = re.sub('(uuid=[^&]+)', 'uuid=' + self.uuid, self.redirect_uri)
+            self.init()
+            return True
+        return False
+
     def wait_for_login(self) -> bool:
         """
         等待扫码登录
@@ -87,6 +102,9 @@ class WebWxClient:
         # 等待扫码成功
         self.__wait_until_scan_qrcode_success()
         self.logger.info('扫码成功，登录中')
+        return self.init()
+
+    def init(self):
         xml = self.session.get(self.redirect_uri).text
         doc = minidom.parseString(xml)
         root = doc.documentElement
@@ -143,12 +161,16 @@ class WebWxClient:
         return r.status_code == 301
 
     def _webwxinit(self):
-        url = self.base_uri + '/webwxinit?pass_ticket=%s&skey=%s&r=%s' % (
-            self.pass_ticket, self.skey, int(time.time()))
+        url = self.base_uri + '/webwxinit'
+        params = {
+            'pass_ticket': self.pass_ticket,
+            'skey':        self.skey,
+            'r':           int(time.time())
+        }
         data = {
             'BaseRequest': self.base_request
         }
-        r = self.session.post(url, json=data)
+        r = self.session.post(url, params=params, json=data, timeout=60)
         r.encoding = 'utf-8'
         dic = r.json()
         if dic['BaseResponse']['Ret'] != 0:
@@ -160,7 +182,11 @@ class WebWxClient:
         return True
 
     def _webwxstatusnotify(self):
-        url = self.base_uri + '/webwxstatusnotify?lang=zh_CN&pass_ticket=%s' % self.pass_ticket
+        url = self.base_uri + '/webwxstatusnotify'
+        params = {
+            'lang':        'zh_CN',
+            'pass_ticket': self.pass_ticket,
+        }
         data = {
             'BaseRequest':  self.base_request,
             'Code':         3,
@@ -168,7 +194,7 @@ class WebWxClient:
             'ToUserName':   self.user.username,
             'ClientMsgId':  int(time.time())
         }
-        dic = self.session.post(url, json=data).json()
+        dic = self.session.post(url, params=params, json=data).json()
         return dic['BaseResponse']['Ret'] == 0
 
     def _webwxgetcontact(self):
@@ -221,14 +247,18 @@ class WebWxClient:
         """
         if not username_list:
             return True
-        url = self.base_uri + '/webwxbatchgetcontact?type=ex&r=%s&pass_ticket=%s' % (
-            int(time.time()), self.pass_ticket)
+        url = self.base_uri + '/webwxbatchgetcontact'
+        params = {
+            'type':        'ex',
+            'pass_ticket': self.pass_ticket,
+            'r':           int(time.time())
+        }
         data = {
             'BaseRequest': self.base_request,
             'Count':       len(username_list),
             'List':        [{'UserName': u, 'EncryChatRoomId': ""} for u in username_list]
         }
-        r = self.session.post(url, json=data)
+        r = self.session.post(url, params=params, json=data)
         r.encoding = 'utf-8'
         dic = r.json()
         if dic['BaseResponse']['Ret'] != 0:
@@ -276,9 +306,13 @@ class WebWxClient:
         }
         url = 'https://' + self.sync_host + '/cgi-bin/mmwebwx-bin/synccheck?' + urlencode(params)
         try:
-            r: HTMLResponse = self.session.get(url)
-        except BadStatusLine as _:
-            # 对方正在输入，会有这个问题
+            r: HTMLResponse = self.session.get(url, timeout=60)
+        except requests.exceptions.Timeout as _:
+            self.logger.warning('连接超时')
+            time.sleep(3)
+            return [-1, -1]
+        except requests.exceptions.ConnectionError as _:
+            self.logger.warning('BadStatusLine')
             time.sleep(3)
             return [-1, -1]
         self.logger.debug(r.content)
@@ -297,9 +331,9 @@ class WebWxClient:
             'rr':          ~int(time.time())
         }
         try:
-            r = self.session.post(url, json=data)
-        except BadStatusLine as _:
-            # 同步消息错误
+            r = self.session.post(url, json=data, timeout=60)
+        except requests.exceptions.ConnectionError as _:
+            self.logger.warning('连接超时')
             time.sleep(3)
             return
         r.encoding = 'utf-8'
@@ -452,13 +486,15 @@ class WebWxClient:
                     self.logger.info(f'未知selector: {selector}')
             elif retcode == '1100':
                 self.logger.info('手动登出')
-                self.logout()
+                self.wait_for_login()
             elif retcode == '1101':
                 self.logger.info('cookie过期')
-                self.logout()
+                if not self.relogin():
+                    self.wait_for_login()
             elif retcode == '1102':
                 self.logger.info('1102')
-                break
+                if not self.relogin():
+                    self.wait_for_login()
             else:
                 self.logger.warning(f'未知retcode: {retcode}')
 
@@ -742,9 +778,19 @@ class WebWxClient:
         qr.print_ascii(invert=True)
 
     def __get_qrcode_status(self, tip=1):
-        url = 'https://login.weixin.qq.com/cgi-bin/mmwebwx-bin/login?loginicon=true&tip=%s&uuid=%s&_=%s' % (
-            tip, self.uuid, int(time.time()))
-        r: HTMLResponse = self.session.get(url)
+        url = 'https://login.weixin.qq.com/cgi-bin/mmwebwx-bin/login'
+        params = {
+            'loginicon': True,
+            'tip':       tip,
+            'uuid':      self.uuid,
+            '_':         int(time.time()),
+        }
+        try:
+            r: HTMLResponse = self.session.get(url, params=params, timeout=60)
+        except requests.exceptions.Timeout as _:
+            self.logger.warning('二维码状态查询超时')
+            time.sleep(1)
+            return QRCodeStatus.EXPIRED
         code = r.html.search('window.code={};')[0]
         if code == '201':
             return QRCodeStatus.SUCCESS
@@ -759,11 +805,17 @@ class WebWxClient:
             return QRCodeStatus.EXPIRED
 
     def __wait_until_scan_qrcode_success(self):
-        status = QRCodeStatus.WAITING
-        while status != QRCodeStatus.CONFIRM:
+        while True:
+            status = QRCodeStatus.WAITING
             # 判断用户是否扫码
-            while status != QRCodeStatus.EXPIRED and status != QRCodeStatus.SUCCESS:
+            while status == QRCodeStatus.WAITING:
                 status = self.__get_qrcode_status()
             # 判断用户是否点击登录
-            while status != QRCodeStatus.EXPIRED and status != QRCodeStatus.CONFIRM:
+            while status == QRCodeStatus.SUCCESS:
                 status = self.__get_qrcode_status(0)
+            if status == QRCodeStatus.EXPIRED:
+                # 这里的都是过期的，重新获取
+                self.logger.info('二维码过期，重新获取')
+                self.__print_login_qrcode(self.uuid)
+            if status == QRCodeStatus.CONFIRM:
+                break
