@@ -26,7 +26,7 @@ class CustomClient(WebWxClient):
         self.receive_channel = self.conn.channel()
         self.receive_channel.queue_declare(queue=RECEIVE_QUEUE)
 
-        # 定时维护rabbitmq心跳
+        # rabbitmq heartbeat keeping thread
         scheduler = BackgroundScheduler()
         scheduler.add_job(lambda conn: conn.process_data_events(), 'interval',
                           seconds=10, args=[self.conn])
@@ -54,6 +54,9 @@ class CustomClient(WebWxClient):
 
     def handle_text(self, msg):
         self.logger.info(msg.to_json())
+        self._publish(msg)
+
+    def handle_emotion(self, msg):
         self._publish(msg)
 
     def handle_modify_contacts(self, username_list):

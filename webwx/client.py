@@ -21,7 +21,8 @@ from urllib3.exceptions import InsecureRequestWarning
 
 from webwx import constants
 from webwx.enums import MsgType, QRCodeStatus
-from webwx.models import Friend, ChatRoom, MediaPlatform, Contact, SpecialUser, TextMsg, LocationMsg, ImageMsg, Msg
+from webwx.models import Friend, ChatRoom, MediaPlatform, Contact, SpecialUser, TextMsg, LocationMsg, ImageMsg, Msg, \
+    EmotionMsg
 
 
 class WebWxClient:
@@ -213,8 +214,8 @@ class WebWxClient:
             # chatroom
             elif '@@' in contact['UserName']:
                 self.chatrooms[contact['UserName']] = ChatRoom(contact)
-                if contact['MemberList']:
-                    self.webwxbatchgetcontact([group_member['UserName'] for group_member in contact['MemberList']])
+                # if contact['MemberList']:
+                #     self.webwxbatchgetcontact([group_member['UserName'] for group_member in contact['MemberList']])
             # self
             elif contact['UserName'] == self.user.username:
                 self.contacts[self.user.username] = self.user
@@ -310,12 +311,14 @@ class WebWxClient:
         }
         try:
             r = self.session.post(url, json=data, timeout=60)
-        except requests.exceptions.ConnectionError as _:
+        except requests.exceptions.Timeout as _:
             self.logger.warning('Timeout')
+            return
+        except requests.exceptions.ConnectionError as _:
+            self.logger.warning('Connection error')
             time.sleep(3)
             return
         r.encoding = 'utf-8'
-        self.logger.info(f"Receiving message: {json.dumps(r.json())}")
         return r.json()
 
     def handle(self, res):
@@ -328,7 +331,6 @@ class WebWxClient:
             # contact info updated
             self._parse_contacts_json(res['ModContactList'])
             self.handle_modify_contacts(list(map(lambda x: x['UserName'], res['ModContactList'])))
-
         for add_msg in res['AddMsgList']:
             try:
                 msg_type = MsgType(int(add_msg['MsgType']))
@@ -354,10 +356,12 @@ class WebWxClient:
             # pic info
             elif msg_type == MsgType.IMAGE:
                 msg = ImageMsg(msg, content)
-                self.handle_text(msg)
+                self.handle_image(msg)
             elif msg_type == MsgType.VOICE:
                 self.handle_voice(msg)
             elif msg_type == MsgType.EMOTION:
+                # HasProductId?
+                msg = EmotionMsg(msg, content)
                 self.handle_emotion(msg)
             elif msg_type == MsgType.LINK:
                 self.handle_link(msg)
@@ -758,7 +762,7 @@ class WebWxClient:
         if code == '201':
             return QRCodeStatus.SUCCESS
         elif code == '200':
-            redirect_uri = r.html.search('window.redirect_uri="{}";')[0]
+            redirect_uri, = r.html.search('window.redirect_uri="{}";')
             self.redirect_uri = redirect_uri + '&fun=new'
             self.base_uri = redirect_uri[:redirect_uri.rfind('/')]
             return QRCodeStatus.CONFIRM
@@ -778,7 +782,7 @@ class WebWxClient:
                 status = self.__get_qrcode_status(0)
             if status == QRCodeStatus.EXPIRED:
                 self.uuid = self.__gen_uuid()
-                self.logger.info(f"Qrcode is expired, regenerate with uuid: {self.uuid}")
+                self.logger.info(f"Qrcode is expired, regenerate with new uuid: {self.uuid}")
                 self.__print_login_qrcode(self.uuid)
             if status == QRCodeStatus.CONFIRM:
                 break

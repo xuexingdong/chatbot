@@ -1,5 +1,7 @@
 from typing import Dict
+from xml.dom import minidom
 
+from webwx import utils
 from webwx.enums import VerifyFlag, Sex, MsgType
 
 
@@ -7,9 +9,14 @@ class Contact:
 
     def __init__(self, user_dict: dict):
         self.username = user_dict['UserName']
-        self.nickname = user_dict['NickName']
-        self.remark_name = user_dict['RemarkName']
+        self.nickname = self.__unescape_emoji(user_dict['NickName'])
+        self.remark_name = self.__unescape_emoji(user_dict['RemarkName'])
         self.sex = Sex(user_dict['Sex'])
+
+    def __unescape_emoji(self, text):
+        if 'emoji' not in text:
+            return text
+        return utils.replace_emoji(text)
 
 
 class SpecialUser(Contact):
@@ -79,7 +86,7 @@ class LocationMsg(Msg):
 class TextMsg(Msg):
     def __init__(self, msg: Msg, content):
         super().__init__(msg.msg_id, msg.from_user, msg.to_user, MsgType.TEXT)
-        self.content = content
+        self.content = utils.replace_emoji(content)
 
     def to_json(self):
         dic = super().to_json()
@@ -100,3 +107,27 @@ class ImageMsg(Msg):
             'content': self.content
         })
         return dic
+
+
+class EmotionMsg(Msg):
+    def __init__(self, msg: Msg, content):
+        super().__init__(msg.msg_id, msg.from_user, msg.to_user, MsgType.EMOTION)
+        # wechat inside emotion has no content
+        self.url = ''
+        if content:
+            index = content.find('<msg>')
+            if index != -1:
+                content = content[index:]
+                self.url = self.__parse_emotion_url(content)
+
+    def to_json(self):
+        dic = super().to_json()
+        dic.update({
+            'url': self.url
+        })
+        return dic
+
+    def __parse_emotion_url(self, content):
+        doc = minidom.parseString(content)
+        root = doc.documentElement
+        return root.getElementsByTagName('emoji')[0].getAttribute('cdnurl')
