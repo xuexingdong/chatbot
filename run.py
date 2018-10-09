@@ -33,19 +33,16 @@ class CustomClient(WebWxClient):
         scheduler.start()
 
     def after_login(self):
-        # 好友id列表
-        chatids = self.friends.keys()
-        # 昵称映射到chatid
-        # chatid代表微信网页版聊天时为用户分配的id
+        # chatid equals to webwx's username
         self.r.set('chatbot:self_chatid', self.user.username)
         username_dict = {}
         remark_name_dict = {}
         for username, contact in self.friends.items():
-            # 没有备注，进行备注填充
+            # set a default remark name when contact has no remark name
             if not contact.remark_name:
-                # 如果没有备注，则自动设置备注
                 remark_name = self._gen_remark_name(contact.nickname)
-                # 这里不去修改redis，等消息同步时，发现用户信息更新，再去修改
+                # do not to modify redis data immediately
+                # modify it when receiving webwx message and the function handle_modify_contacts called
                 self.webwxoplog(contact.username, remark_name)
             else:
                 username_dict[username] = contact.remark_name
@@ -61,11 +58,11 @@ class CustomClient(WebWxClient):
 
     def handle_modify_contacts(self, username_list):
         for username in username_list:
-            # 好友才进行备注处理，排除掉群组和其他奇怪的账号
+            # only manage the remark name of friends, exclude chatrooms or else contacts
             if username in self.friends:
                 self.r.hset('chatbot:remark_name_username_mapping', self.friends[username].remark_name, username)
                 old_remark_name = self.r.hget('chatbot:username_remark_name_mapping', username)
-                # 旧备注删掉
+                # remove the old remark name
                 self.r.hdel('chatbot:remark_name_username_mapping', old_remark_name)
                 self.r.hset('chatbot:username_remark_name_mapping', username, self.friends[username].remark_name)
 
