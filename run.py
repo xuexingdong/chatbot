@@ -53,7 +53,6 @@ class CustomClient(WebWxClient):
             self.r.hmset('chatbot:remark_name_username_mapping', remark_name_dict)
 
     def handle_text(self, msg):
-        self.logger.info(msg.to_json())
         self._publish(msg)
 
     def handle_emotion(self, msg):
@@ -70,6 +69,7 @@ class CustomClient(WebWxClient):
                 self.r.hset('chatbot:username_remark_name_mapping', username, self.friends[username].remark_name)
 
     def _publish(self, msg):
+        self.logger.info(msg.to_json())
         self.receive_channel.basic_publish(exchange='', routing_key=RECEIVE_QUEUE,
                                            body=json.dumps(msg.to_json()))
 

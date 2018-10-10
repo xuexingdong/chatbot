@@ -541,8 +541,8 @@ class WebWxClient:
         success = dic['BaseResponse']['Ret'] == 0
         return success
 
-    def webwxsendmsgimg(self, to_username, file_name):
-        media_id = self._webwxuploadmedia(file_name)
+    def webwxsendmsgimg(self, to_username, file_url):
+        media_id, _ = self._webwxuploadmedia(file_url)
         if not media_id:
             return
         url = self.base_uri + '/webwxsendmsgimg?fun=async&f=json&pass_ticket=%s' % self.pass_ticket
@@ -564,8 +564,8 @@ class WebWxClient:
         success = dic['BaseResponse']['Ret'] == 0
         return success
 
-    def webwxsendappmsg(self, to_username, file_name):
-        media_id = self._webwxuploadmedia(file_name)
+    def webwxsendappmsg(self, to_username, file_url):
+        media_id, file_size = self._webwxuploadmedia(file_url)
         if not media_id:
             return
         url = self.base_uri + '/webwxsendappmsg?fun=async&f=json&pass_ticket=' + self.pass_ticket
@@ -574,11 +574,10 @@ class WebWxClient:
             'BaseRequest': self.base_request,
             'Msg':         {
                 'Type':         6,
-                'Content':      (
-                                        "<appmsg appid='wxeb7ec651dd0aefa9' sdkver=''><title>%s</title><des></des><action></action><type>6</type><content></content><url></url><lowurl></lowurl><appattach><totallen>%s</totallen><attachid>%s</attachid><fileext>%s</fileext></appattach><extinfo></extinfo></appmsg>" % (
-                                    os.path.basename(file_name).encode(), str(os.path.getsize(file_name)),
-                                    media_id,
-                                    file_name.split('.')[-1])).encode(),
+                'Content':      "<appmsg appid='wxeb7ec651dd0aefa9' sdkver=''><title>%s</title><des></des><action></action><type>6</type><content></content><url></url><lowurl></lowurl><appattach><totallen>%s</totallen><attachid>%s</attachid><fileext>%s</fileext></appattach><extinfo></extinfo></appmsg>" % (
+                    os.path.basename(file_url), file_size,
+                    media_id,
+                    file_url.split('.')[-1]),
                 'FromUserName': self.user.username,
                 'ToUserName':   to_username,
                 'LocalID':      client_msg_id,
@@ -599,7 +598,10 @@ class WebWxClient:
         mime_type = mimetypes.guess_type(file_url, strict=False)[0]
         # 微信识别的文档格式，微信服务器应该只支持两种类型的格式。pic和doc
         # pic格式，直接显示。doc格式则显示为文件。
-        media_type = 'pic' if mime_type.split('/')[0] == 'image' else 'doc'
+        if mime_type and mime_type.split('/')[0] == 'image':
+            media_type = 'pic'
+        else:
+            media_type = 'doc'
         now = arrow.now()
         last_modified_datetime = f'{now:ddd MMM DD YYYY HH:mm:ss} GMT{now:Z} (CST)'
         file_content = requests.get(file_url).content
@@ -623,14 +625,14 @@ class WebWxClient:
             fields={
                 'id':                 'WU_FILE_' + str(self.media_count),
                 'name':               file_name,
-                'type':               mime_type,
+                'type':               'application/octet-stream',
                 'lastModifieDate':    last_modified_datetime,
                 'size':               str(file_size),
                 'mediatype':          media_type,
                 'uploadmediarequest': uploadmediarequest,
                 'webwx_data_ticket':  webwx_data_ticket,
                 'pass_ticket':        self.pass_ticket,
-                'filename':           (file_name, file_content, mime_type.split('/')[1])
+                'filename':           (file_name, file_content, 'application/octet-stream')
             },
             boundary='-----------------------------1575017231431605357584454111'
         )
@@ -652,7 +654,7 @@ class WebWxClient:
         r = self.session.post(url, data=multipart_encoder, headers=headers)
         response_json = r.json()
         if response_json['BaseResponse']['Ret'] == 0:
-            return response_json['MediaId']
+            return response_json['MediaId'], file_size
 
     @abstractmethod
     def handle_text(self, msg):
