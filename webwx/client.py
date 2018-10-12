@@ -1,3 +1,4 @@
+import base64
 import html
 import json
 import logging
@@ -28,8 +29,6 @@ from webwx.models import Friend, ChatRoom, MediaPlatform, Contact, SpecialUser, 
 class WebWxClient:
     logger = logging.getLogger(__name__)
 
-    __login_status = False
-
     def __init__(self):
         self.session = HTMLSession()
         self.session.verify = False
@@ -39,7 +38,7 @@ class WebWxClient:
         }
 
         # initial params
-        self.device_id = self.__gen_device_id()
+        self.device_id = self._gen_device_id()
         self.uuid = ''
         self.redirect_uri = ''
         self.base_uri = ''
@@ -87,11 +86,11 @@ class WebWxClient:
         return False
 
     def wait_for_login(self) -> bool:
-        self.uuid = self.__gen_uuid()
+        self.uuid = self._gen_uuid()
         self.logger.info(f"Generate uuid: {self.uuid}")
         self.logger.info("Scan the qrcode to login")
-        self.__print_login_qrcode(self.uuid)
-        self.__wait_until_scan_qrcode_success()
+        self._print_login_qrcode(self.uuid)
+        self._wait_until_scan_qrcode_success()
         self.logger.info("Login success")
         return self.init()
 
@@ -342,6 +341,8 @@ class WebWxClient:
             # call self.webwxbatchgetcontact to update the contracts list
             if add_msg['FromUserName'] not in self.contacts:
                 self.webwxbatchgetcontact([add_msg['FromUserName']])
+            if add_msg['ToUserName'] not in self.contacts:
+                self.webwxbatchgetcontact([add_msg['ToUserName']])
             msg = Msg(add_msg['MsgId'], self.contacts[add_msg['FromUserName']],
                       self.contacts[add_msg['ToUserName']])
             # unescape html
@@ -355,7 +356,8 @@ class WebWxClient:
                 self.handle_text(msg)
             # pic info
             elif msg_type == MsgType.IMAGE:
-                msg = ImageMsg(msg, content)
+                content = self.webwxgetmsgimg(msg.msg_id)
+                msg = ImageMsg(msg, base64.b64encode(content).decode())
                 self.handle_image(msg)
             elif msg_type == MsgType.VOICE:
                 self.handle_voice(msg)
@@ -473,7 +475,8 @@ class WebWxClient:
                 self.logger.warning(f"Unknown retcode: {retcode}")
 
     def webwxgetmsgimg(self, msgid):
-        url = self.base_uri + '/webwxgetmsgimg?MsgID=%s&skey=%s&type=slave' % (msgid, self.skey)
+        # add param type=slave to load thumbnail
+        url = self.base_uri + '/webwxgetmsgimg?MsgID=%s&skey=%s' % (msgid, self.skey)
         return self.session.get(url).content
 
     # Not work now for weixin haven't support this API
@@ -716,7 +719,7 @@ class WebWxClient:
     def _gen_client_msg_id():
         return str(int(time.time() * 1000)) + str(random.random())[:5].replace('.', '')
 
-    def __gen_uuid(self):
+    def _gen_uuid(self):
         """
         生成uuid
         :return:
@@ -735,18 +738,18 @@ class WebWxClient:
             return uuid
 
     @staticmethod
-    def __gen_device_id():
+    def _gen_device_id():
         return 'e' + repr(random.random())[2:17]
 
     @staticmethod
-    def __print_login_qrcode(uuid):
+    def _print_login_qrcode(uuid):
         qr = qrcode.QRCode()
         qr.border = 1
         qr.add_data(f'https://login.weixin.qq.com/l/{uuid}')
         qr.make()
         qr.print_ascii(invert=True)
 
-    def __get_qrcode_status(self, tip=1):
+    def _get_qrcode_status(self, tip=1):
         url = 'https://login.weixin.qq.com/cgi-bin/mmwebwx-bin/login'
         params = {
             'loginicon': True,
@@ -773,18 +776,18 @@ class WebWxClient:
         elif code == '400':
             return QRCodeStatus.EXPIRED
 
-    def __wait_until_scan_qrcode_success(self):
+    def _wait_until_scan_qrcode_success(self):
         while True:
             status = QRCodeStatus.WAITING
             # if scanned
             while status == QRCodeStatus.WAITING:
-                status = self.__get_qrcode_status()
+                status = self._get_qrcode_status()
             # if click login
             while status == QRCodeStatus.SUCCESS:
-                status = self.__get_qrcode_status(0)
+                status = self._get_qrcode_status(0)
             if status == QRCodeStatus.EXPIRED:
-                self.uuid = self.__gen_uuid()
+                self.uuid = self._gen_uuid()
                 self.logger.info(f"Qrcode is expired, regenerate with new uuid: {self.uuid}")
-                self.__print_login_qrcode(self.uuid)
+                self._print_login_qrcode(self.uuid)
             if status == QRCodeStatus.CONFIRM:
                 break

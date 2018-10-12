@@ -9,11 +9,12 @@ class Contact:
 
     def __init__(self, user_dict: dict):
         self.username = user_dict['UserName']
-        self.nickname = self.__unescape_emoji(user_dict['NickName'])
-        self.remark_name = self.__unescape_emoji(user_dict['RemarkName'])
+        self.nickname = self._unescape_emoji(user_dict['NickName'])
+        self.remark_name = self._unescape_emoji(user_dict['RemarkName'])
         self.sex = Sex(user_dict['Sex'])
 
-    def __unescape_emoji(self, text):
+    @staticmethod
+    def _unescape_emoji(text):
         if 'emoji' not in text:
             return text
         return utils.replace_emoji(text)
@@ -87,6 +88,8 @@ class TextMsg(Msg):
     def __init__(self, msg: Msg, content):
         super().__init__(msg.msg_id, msg.from_user, msg.to_user, MsgType.TEXT)
         self.content = utils.replace_emoji(content)
+        self.chatroom = None
+        self.at = None
 
     def to_json(self):
         dic = super().to_json()
@@ -97,14 +100,14 @@ class TextMsg(Msg):
 
 
 class ImageMsg(Msg):
-    def __init__(self, msg: Msg, content):
+    def __init__(self, msg: Msg, base64_content: bytes):
         super().__init__(msg.msg_id, msg.from_user, msg.to_user, MsgType.IMAGE)
-        self.content = content
+        self.base64_content = base64_content
 
     def to_json(self):
         dic = super().to_json()
         dic.update({
-            'content': self.content
+            'base64_content': self.base64_content
         })
         return dic
 
@@ -118,7 +121,7 @@ class EmotionMsg(Msg):
             index = content.find('<msg>')
             if index != -1:
                 content = content[index:]
-                self.url = self.__parse_emotion_url(content)
+                self.url = self._parse_emotion_url(content)
 
     def to_json(self):
         dic = super().to_json()
@@ -127,7 +130,8 @@ class EmotionMsg(Msg):
         })
         return dic
 
-    def __parse_emotion_url(self, content):
+    @staticmethod
+    def _parse_emotion_url(content):
         doc = minidom.parseString(content)
         root = doc.documentElement
         return root.getElementsByTagName('emoji')[0].getAttribute('cdnurl')

@@ -55,6 +55,9 @@ class CustomClient(WebWxClient):
     def handle_text(self, msg):
         self._publish(msg)
 
+    def handle_image(self, msg):
+        self._publish(msg)
+
     def handle_emotion(self, msg):
         self._publish(msg)
 
