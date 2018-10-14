@@ -1,7 +1,0 @@
-requests
-requests_html
-qrcode
-requests
-pika
-arrow
-PyYAML
