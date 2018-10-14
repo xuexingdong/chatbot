@@ -344,7 +344,7 @@ class WebWxClient:
             if add_msg['ToUserName'] not in self.contacts:
                 self.webwxbatchgetcontact([add_msg['ToUserName']])
             msg = Msg(add_msg['MsgId'], self.contacts[add_msg['FromUserName']],
-                      self.contacts[add_msg['ToUserName']])
+                      self.contacts[add_msg['ToUserName']], add_msg['CreateTime'])
             # unescape html
             content = html.unescape(add_msg['Content'])
             # location info

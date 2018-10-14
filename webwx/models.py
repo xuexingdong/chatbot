@@ -43,18 +43,19 @@ class ChatRoom(Contact):
 
 
 class MediaPlatform(Contact):
+    verify_flag = VerifyFlag.COMMON_MP
+
     def __init__(self, user_dict: dict):
         super().__init__(user_dict)
 
-    verify_flag = VerifyFlag.COMMON_MP
-
 
 class Msg:
-    def __init__(self, msg_id, from_user, to_user, msg_type=MsgType.UNHANDLED):
+    def __init__(self, msg_id, from_user, to_user, create_time, msg_type=MsgType.UNHANDLED):
         self.msg_id = msg_id
         self.from_user = from_user
         self.to_user = to_user
         self.msg_type = msg_type
+        self.create_time = create_time
 
     def to_json(self):
         return {
@@ -66,12 +67,13 @@ class Msg:
             'to_nickname':      self.to_user.nickname,
             'from_remark_name': self.from_user.remark_name,
             'to_remark_name':   self.to_user.remark_name,
+            'create_time':      self.create_time
         }
 
 
 class LocationMsg(Msg):
     def __init__(self, msg: Msg, url, content):
-        super().__init__(msg.msg_id, msg.from_user, msg.to_user, MsgType.LOCATION)
+        super().__init__(msg.msg_id, msg.from_user, msg.to_user, msg.create_time, MsgType.LOCATION)
         self.url = url
         self.content = content
 
@@ -86,10 +88,8 @@ class LocationMsg(Msg):
 
 class TextMsg(Msg):
     def __init__(self, msg: Msg, content):
-        super().__init__(msg.msg_id, msg.from_user, msg.to_user, MsgType.TEXT)
+        super().__init__(msg.msg_id, msg.from_user, msg.to_user, msg.create_time, MsgType.TEXT)
         self.content = utils.replace_emoji(content)
-        self.chatroom = None
-        self.at = None
 
     def to_json(self):
         dic = super().to_json()
@@ -101,7 +101,7 @@ class TextMsg(Msg):
 
 class ImageMsg(Msg):
     def __init__(self, msg: Msg, base64_content: bytes):
-        super().__init__(msg.msg_id, msg.from_user, msg.to_user, MsgType.IMAGE)
+        super().__init__(msg.msg_id, msg.from_user, msg.to_user, msg.create_time, MsgType.IMAGE)
         self.base64_content = base64_content
 
     def to_json(self):
@@ -114,7 +114,7 @@ class ImageMsg(Msg):
 
 class EmotionMsg(Msg):
     def __init__(self, msg: Msg, content):
-        super().__init__(msg.msg_id, msg.from_user, msg.to_user, MsgType.EMOTION)
+        super().__init__(msg.msg_id, msg.from_user, msg.to_user, msg.create_time, MsgType.EMOTION)
         # wechat inside emotion has no content
         self.url = ''
         if content:
