@@ -1,0 +1,21 @@
+[[source]]
+url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+verify_ssl = true
+name = "tsinghua"
+
+[packages]
+requests-toolbelt = "*"
+requests-html = "*"
+requests = "*"
+qrcode = "*"
+arrow = "*"
+redis = "*"
+PyYAML = "*"
+pika = "*"
+apscheduler = "*"
+pipreq = "*"
+
+[dev-packages]
+
+[requires]
+python_version = "3.6"
