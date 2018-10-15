@@ -50,14 +50,16 @@ class MediaPlatform(Contact):
 
 
 class Msg:
-    def __init__(self, msg_id, from_user, to_user, create_time, msg_type=MsgType.UNHANDLED):
+    def __init__(self, msg_id, from_user, to_user, create_time, content, msg_type=MsgType.UNHANDLED):
         self.msg_id = msg_id
         self.from_user = from_user
         self.to_user = to_user
         self.msg_type = msg_type
         self.create_time = create_time
+        self.content = content
 
-    def to_json(self):
+    @property
+    def json(self):
         return {
             'msg_id':           self.msg_id,
             'msg_type':         self.msg_type,
@@ -67,21 +69,21 @@ class Msg:
             'to_nickname':      self.to_user.nickname,
             'from_remark_name': self.from_user.remark_name,
             'to_remark_name':   self.to_user.remark_name,
+            'content':          self.content,
             'create_time':      self.create_time
         }
 
 
 class LocationMsg(Msg):
-    def __init__(self, msg: Msg, url, content):
+    def __init__(self, msg: Msg, url):
         super().__init__(msg.msg_id, msg.from_user, msg.to_user, msg.create_time, MsgType.LOCATION)
         self.url = url
-        self.content = content
 
-    def to_json(self):
-        dic = super().to_json()
+    @property
+    def json(self):
+        dic = super().json
         dic.update({
-            'url':     self.url,
-            'content': self.content
+            'url': self.url
         })
         return dic
 
@@ -91,21 +93,15 @@ class TextMsg(Msg):
         super().__init__(msg.msg_id, msg.from_user, msg.to_user, msg.create_time, MsgType.TEXT)
         self.content = utils.replace_emoji(content)
 
-    def to_json(self):
-        dic = super().to_json()
-        dic.update({
-            'content': self.content
-        })
-        return dic
-
 
 class ImageMsg(Msg):
     def __init__(self, msg: Msg, base64_content: bytes):
         super().__init__(msg.msg_id, msg.from_user, msg.to_user, msg.create_time, MsgType.IMAGE)
         self.base64_content = base64_content
 
-    def to_json(self):
-        dic = super().to_json()
+    @property
+    def json(self):
+        dic = super().json
         dic.update({
             'base64_content': self.base64_content
         })
@@ -123,8 +119,9 @@ class EmotionMsg(Msg):
                 content = content[index:]
                 self.url = self._parse_emotion_url(content)
 
-    def to_json(self):
-        dic = super().to_json()
+    @property
+    def json(self):
+        dic = super().json
         dic.update({
             'url': self.url
         })

@@ -21,7 +21,7 @@ from requests_toolbelt import MultipartEncoder
 from urllib3.exceptions import InsecureRequestWarning
 
 from webwx import constants
-from webwx.enums import MsgType, QRCodeStatus
+from webwx.enums import MsgType, QRCodeStatus, SubMsgType
 from webwx.models import Friend, ChatRoom, MediaPlatform, Contact, SpecialUser, TextMsg, LocationMsg, ImageMsg, Msg, \
     EmotionMsg
 
@@ -74,17 +74,6 @@ class WebWxClient:
         return self.base_uri + '/webwxsync?sid=%s&skey=%s&pass_ticket=%s' % (
             self.sid, self.skey, self.pass_ticket)
 
-    def relogin(self):
-        r = self.session.get('https://login.weixin.qq.com/cgi-bin/mmwebwx-bin/webwxpushloginurl?uin=' + self.uin)
-        res = r.json()
-        if res['ret'] == 0:
-            self.uuid = res['uuid']
-            # replace the uuid in old redirect_uri
-            self.redirect_uri = re.sub('(uuid=[^&]+)', 'uuid=' + self.uuid, self.redirect_uri)
-            self.init()
-            return True
-        return False
-
     def wait_for_login(self) -> bool:
         self.uuid = self._gen_uuid()
         self.logger.info(f"Generate uuid: {self.uuid}")
@@ -92,9 +81,37 @@ class WebWxClient:
         self._print_login_qrcode(self.uuid)
         self._wait_until_scan_qrcode_success()
         self.logger.info("Login success")
-        return self.init()
+        return self._init()
 
-    def init(self):
+    def after_login(self):
+        pass
+
+    def relogin(self):
+        r = self.session.get('https://login.weixin.qq.com/cgi-bin/mmwebwx-bin/webwxpushloginurl?uin=' + self.uin)
+        res = r.json()
+        if res['ret'] != 0:
+            return False
+        self.uuid = res['uuid']
+        # replace the uuid in old redirect_uri
+        self.redirect_uri = re.sub('(uuid=[^&]+)', 'uuid=' + self.uuid, self.redirect_uri)
+        self._init()
+        return True
+
+    def logout(self):
+        url = self.base_uri + '/webwxlogout'
+        params = {
+            'redirect': 1,
+            'type':     1,
+            'skey':     self.skey
+        }
+        data = {
+            'sid': self.sid,
+            'uin': self.uin
+        }
+        r = self.session.post(url, params=params, data=data, allow_redirects=False)
+        return r.status_code == 301
+
+    def _init(self):
         xml = self.session.get(self.redirect_uri).text
         doc = minidom.parseString(xml)
         root = doc.documentElement
@@ -132,23 +149,6 @@ class WebWxClient:
             return False
         self.after_login()
         return True
-
-    def after_login(self):
-        pass
-
-    def logout(self):
-        url = self.base_uri + '/webwxlogout'
-        params = {
-            'redirect': 1,
-            'type':     1,
-            'skey':     self.skey
-        }
-        data = {
-            'sid': self.sid,
-            'uin': self.uin
-        }
-        r = self.session.post(url, params=params, data=data, allow_redirects=False)
-        return r.status_code == 301
 
     def _webwxinit(self):
         url = self.base_uri + '/webwxinit'
@@ -331,29 +331,26 @@ class WebWxClient:
             self._parse_contacts_json(res['ModContactList'])
             self.handle_modify_contacts(list(map(lambda x: x['UserName'], res['ModContactList'])))
         for add_msg in res['AddMsgList']:
-            try:
-                msg_type = MsgType(int(add_msg['MsgType']))
-            except ValueError:
-                self.logger.error('invalid msg type:{}', add_msg['MsgType'])
-                continue
-
+            msg_type = MsgType(int(add_msg['MsgType']))
             # can't find fromUsername in self.contacts, the message might be from the chatroom
             # call self.webwxbatchgetcontact to update the contracts list
             if add_msg['FromUserName'] not in self.contacts:
                 self.webwxbatchgetcontact([add_msg['FromUserName']])
             if add_msg['ToUserName'] not in self.contacts:
                 self.webwxbatchgetcontact([add_msg['ToUserName']])
-            msg = Msg(add_msg['MsgId'], self.contacts[add_msg['FromUserName']],
-                      self.contacts[add_msg['ToUserName']], add_msg['CreateTime'])
             # unescape html
             content = html.unescape(add_msg['Content'])
-            # location info
-            if content.find('&pictype=location') != -1:
-                msg = LocationMsg(msg, add_msg['Url'], content)
-                self.handle_location(msg)
-            elif msg_type == MsgType.TEXT:
-                msg = TextMsg(msg, content)
-                self.handle_text(msg)
+            msg = Msg(add_msg['MsgId'], self.contacts[add_msg['FromUserName']],
+                      self.contacts[add_msg['ToUserName']], content, add_msg['CreateTime'])
+
+            if msg_type == MsgType.TEXT:
+                # location info
+                if SubMsgType(int(add_msg['SubMsgType'])):
+                    msg = LocationMsg(msg, add_msg['Url'])
+                    self.handle_location(msg)
+                else:
+                    msg = TextMsg(msg, content)
+                    self.handle_text(msg)
             # pic info
             elif msg_type == MsgType.IMAGE:
                 content = self.webwxgetmsgimg(msg.msg_id)
@@ -475,7 +472,7 @@ class WebWxClient:
                 self.logger.warning(f"Unknown retcode: {retcode}")
 
     def webwxgetmsgimg(self, msgid):
-        # add param type=slave to load thumbnail
+        # add param type=slave to get the thumbnail instead of the whole image
         url = self.base_uri + '/webwxgetmsgimg?MsgID=%s&skey=%s' % (msgid, self.skey)
         return self.session.get(url).content
 

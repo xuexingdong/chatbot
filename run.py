@@ -33,7 +33,9 @@ class CustomClient(WebWxClient):
         scheduler.start()
 
     def after_login(self):
-        # chatid equals to webwx's username
+        # persist cookie
+        self.r.hmset("chatbot:session", self.session.cookies.get_dict())
+        # chatid is webwx's username
         self.r.set('chatbot:self_chatid', self.user.username)
         username_dict = {}
         remark_name_dict = {}
@@ -72,9 +74,9 @@ class CustomClient(WebWxClient):
                 self.r.hset('chatbot:username_remark_name_mapping', username, self.friends[username].remark_name)
 
     def _publish(self, msg):
-        self.logger.info(msg.to_json())
+        self.logger.info(msg.json)
         self.receive_channel.basic_publish(exchange='', routing_key=RECEIVE_QUEUE,
-                                           body=json.dumps(msg.to_json()))
+                                           body=json.dumps(msg.json))
 
     @staticmethod
     def _gen_remark_name(nickname):
