@@ -18,6 +18,7 @@ class MsgType(IntEnum):
     CARD = 42
     VIDEO = 43
     EMOTION = 47
+    LOCATION = 48
     LINK = 49
     CALL = 50
     GET_CONTACTS_INFO = 51
@@ -32,6 +33,7 @@ class MsgType(IntEnum):
 
 @unique
 class SubMsgType(IntEnum):
+    TEXT = 0
     LOCATION = 48
 
 

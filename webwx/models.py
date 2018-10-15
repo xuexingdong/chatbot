@@ -50,7 +50,7 @@ class MediaPlatform(Contact):
 
 
 class Msg:
-    def __init__(self, msg_id, from_user, to_user, create_time, content, msg_type=MsgType.UNHANDLED):
+    def __init__(self, msg_id, from_user, to_user, content, create_time, msg_type=MsgType.UNHANDLED):
         self.msg_id = msg_id
         self.from_user = from_user
         self.to_user = to_user
@@ -74,29 +74,15 @@ class Msg:
         }
 
 
-class LocationMsg(Msg):
-    def __init__(self, msg: Msg, url):
-        super().__init__(msg.msg_id, msg.from_user, msg.to_user, msg.create_time, MsgType.LOCATION)
-        self.url = url
-
-    @property
-    def json(self):
-        dic = super().json
-        dic.update({
-            'url': self.url
-        })
-        return dic
-
-
 class TextMsg(Msg):
     def __init__(self, msg: Msg, content):
-        super().__init__(msg.msg_id, msg.from_user, msg.to_user, msg.create_time, MsgType.TEXT)
+        super().__init__(msg.msg_id, msg.from_user, msg.to_user, msg.content, msg.create_time, MsgType.TEXT)
         self.content = utils.replace_emoji(content)
 
 
 class ImageMsg(Msg):
-    def __init__(self, msg: Msg, base64_content: bytes):
-        super().__init__(msg.msg_id, msg.from_user, msg.to_user, msg.create_time, MsgType.IMAGE)
+    def __init__(self, msg: Msg, base64_content):
+        super().__init__(msg.msg_id, msg.from_user, msg.to_user, msg.content, msg.create_time, MsgType.IMAGE)
         self.base64_content = base64_content
 
     @property
@@ -110,7 +96,7 @@ class ImageMsg(Msg):
 
 class EmotionMsg(Msg):
     def __init__(self, msg: Msg, content):
-        super().__init__(msg.msg_id, msg.from_user, msg.to_user, msg.create_time, MsgType.EMOTION)
+        super().__init__(msg.msg_id, msg.from_user, msg.to_user, msg.content, msg.create_time, MsgType.EMOTION)
         # wechat inside emotion has no content
         self.url = ''
         if content:
@@ -132,3 +118,9 @@ class EmotionMsg(Msg):
         doc = minidom.parseString(content)
         root = doc.documentElement
         return root.getElementsByTagName('emoji')[0].getAttribute('cdnurl')
+
+
+class LocationMsg(ImageMsg):
+    def __init__(self, msg: Msg, base64_content):
+        super().__init__(msg, base64_content)
+        self.msg_type = MsgType.LOCATION

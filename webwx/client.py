@@ -346,7 +346,8 @@ class WebWxClient:
             if msg_type == MsgType.TEXT:
                 # location info
                 if SubMsgType(int(add_msg['SubMsgType'])):
-                    msg = LocationMsg(msg, add_msg['Url'])
+                    content = self.webwxgetpubliclinkimg(msg.msg_id)
+                    msg = LocationMsg(msg, base64.b64encode(content).decode())
                     self.handle_location(msg)
                 else:
                     msg = TextMsg(msg, content)
@@ -483,6 +484,10 @@ class WebWxClient:
 
     def webwxgetvoice(self, msgid):
         url = self.base_uri + '/webwxgetvoice?msgid=%s&skey=%s' % (msgid, self.skey)
+        return self.session.get(url).content
+
+    def webwxgetpubliclinkimg(self, msgid):
+        url = self.base_uri + '/webwxgetpubliclinkimg?url=xxx&msgid=%s&pictype=location' % msgid
         return self.session.get(url).content
 
     def webwxoplog(self, to_username, remark_name):

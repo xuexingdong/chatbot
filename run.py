@@ -63,6 +63,9 @@ class CustomClient(WebWxClient):
     def handle_emotion(self, msg):
         self._publish(msg)
 
+    def handle_location(self, msg):
+        self._publish(msg)
+
     def handle_modify_contacts(self, username_list):
         for username in username_list:
             # only manage the remark name of friends, exclude chatrooms or else contacts
