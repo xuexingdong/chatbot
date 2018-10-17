@@ -36,7 +36,7 @@ class CustomClient(WebWxClient):
         # persist cookie
         self.r.hmset("chatbot:session", self.session.cookies.get_dict())
         # chatid is webwx's username
-        self.r.set('chatbot:self_chatid', self.user.username)
+        self.r.set('chatbot:client:self_chatid', self.user.username)
         username_dict = {}
         remark_name_dict = {}
         for username, contact in self.friends.items():
@@ -50,9 +50,9 @@ class CustomClient(WebWxClient):
                 username_dict[username] = contact.remark_name
                 remark_name_dict[contact.remark_name] = username
         if username_dict:
-            self.r.hmset('chatbot:username_remark_name_mapping', username_dict)
+            self.r.hmset('chatbot:client:username_remark_name_mapping', username_dict)
         if remark_name_dict:
-            self.r.hmset('chatbot:remark_name_username_mapping', remark_name_dict)
+            self.r.hmset('chatbot:client:remark_name_username_mapping', remark_name_dict)
 
     def handle_text(self, msg):
         self._publish(msg)
@@ -66,15 +66,17 @@ class CustomClient(WebWxClient):
     def handle_location(self, msg):
         self._publish(msg)
 
-    def handle_modify_contacts(self, username_list):
+    def handle_update_contacts(self, username_list):
         for username in username_list:
-            # only manage the remark name of friends, exclude chatrooms or else contacts
-            if username in self.friends:
-                self.r.hset('chatbot:remark_name_username_mapping', self.friends[username].remark_name, username)
-                old_remark_name = self.r.hget('chatbot:username_remark_name_mapping', username)
+            if username in self.contacts:
+                self.r.hset('chatbot:client:remark_name_username_mapping', self.contacts[username].remark_name,
+                            username)
+                old_remark_name = self.r.hget('chatbot:client:username_remark_name_mapping', username)
                 # remove the old remark name
-                self.r.hdel('chatbot:remark_name_username_mapping', old_remark_name)
-                self.r.hset('chatbot:username_remark_name_mapping', username, self.friends[username].remark_name)
+                self.r.hdel('chatbot:client:remark_name_username_mapping', old_remark_name)
+                self.r.hset('chatbot:client:username_remark_name_mapping', username,
+                            self.contacts[username].remark_name)
+                self.r.hset('chatbot:client:username_nickname_mapping', username, self.contacts[username].nickname)
 
     def _publish(self, msg):
         self.logger.info(msg.json)

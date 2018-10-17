@@ -242,10 +242,14 @@ class WebWxClient:
         if dic['BaseResponse']['Ret'] != 0:
             self.logger.error(f"webwxbatchgetcontact error: {dic['BaseResponse']['ErrMsg']}")
             return False
+        username_list = []
         for member in dic['ContactList']:
+            username_list.append(member['UserName'])
             friend = Friend(member)
             self.contacts[friend.username] = friend
             self.chatroom_contacts[friend.username] = friend
+        # trigger update
+        self.handle_update_contacts(username_list)
         return True
 
     def testsynccheck(self):
@@ -329,11 +333,12 @@ class WebWxClient:
         if res['ModContactList']:
             # contact info updated
             self._parse_contacts_json(res['ModContactList'])
-            self.handle_modify_contacts(list(map(lambda x: x['UserName'], res['ModContactList'])))
+            # trigger update
+            self.handle_update_contacts(list(map(lambda x: x['UserName'], res['ModContactList'])))
         for add_msg in res['AddMsgList']:
             msg_type = MsgType(int(add_msg['MsgType']))
             # can't find fromUsername in self.contacts, the message might be from the chatroom
-            # call self.webwxbatchgetcontact to update the contracts list
+            # call self.webwxbatchgetcontact to update the contacts list
             if add_msg['FromUserName'] not in self.contacts:
                 self.webwxbatchgetcontact([add_msg['FromUserName']])
             if add_msg['ToUserName'] not in self.contacts:
@@ -342,7 +347,13 @@ class WebWxClient:
             content = html.unescape(add_msg['Content'])
             msg = Msg(add_msg['MsgId'], self.contacts[add_msg['FromUserName']],
                       self.contacts[add_msg['ToUserName']], content, add_msg['CreateTime'])
-
+            # if message is from chatroom, try to find the real from username,
+            # and add it into self.contacts if it has not be cached
+            if msg.from_user.username.startswith('@@'):
+                if '' not in self.contacts:
+                    real_from_username = ''
+                    if real_from_username not in self.contacts:
+                        self.webwxbatchgetcontact([real_from_username])
             if msg_type == MsgType.TEXT:
                 # location info
                 if SubMsgType(int(add_msg['SubMsgType'])):
@@ -702,7 +713,7 @@ class WebWxClient:
         pass
 
     @abstractmethod
-    def handle_modify_contacts(self, username_list):
+    def handle_update_contacts(self, username_list):
         pass
 
     @abstractmethod
