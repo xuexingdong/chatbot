@@ -39,7 +39,8 @@ class CustomClient(WebWxClient):
         self.r.set('chatbot:client:self_chatid', self.user.username)
         username_dict = {}
         remark_name_dict = {}
-        for username, contact in self.friends.items():
+        for contact in self.contacts.values():
+            username = contact.username
             # set a default remark name when contact has no remark name
             if not contact.remark_name:
                 remark_name = self._gen_remark_name(contact.nickname)
@@ -53,6 +54,8 @@ class CustomClient(WebWxClient):
             self.r.hmset('chatbot:client:username_remark_name_mapping', username_dict)
         if remark_name_dict:
             self.r.hmset('chatbot:client:remark_name_username_mapping', remark_name_dict)
+        for chatroom in self.chatrooms.values():
+            self._update_chatroom_redis_data(chatroom)
 
     def handle_text(self, msg):
         self._publish(msg)
@@ -68,15 +71,23 @@ class CustomClient(WebWxClient):
 
     def handle_update_contacts(self, username_list):
         for username in username_list:
-            if username in self.contacts:
-                self.r.hset('chatbot:client:remark_name_username_mapping', self.contacts[username].remark_name,
-                            username)
-                old_remark_name = self.r.hget('chatbot:client:username_remark_name_mapping', username)
-                # remove the old remark name
-                self.r.hdel('chatbot:client:remark_name_username_mapping', old_remark_name)
-                self.r.hset('chatbot:client:username_remark_name_mapping', username,
-                            self.contacts[username].remark_name)
-                self.r.hset('chatbot:client:username_nickname_mapping', username, self.contacts[username].nickname)
+            if username in self.chatrooms:
+                self._update_chatroom_redis_data(self.chatrooms[username])
+            # update username remark_name mapping
+            self.r.hset('chatbot:client:remark_name_username_mapping', self.contacts[username].remark_name, username)
+            old_remark_name = self.r.hget('chatbot:client:username_remark_name_mapping', username)
+            # remove the old remark name
+            self.r.hdel('chatbot:client:remark_name_username_mapping', old_remark_name)
+            self.r.hset('chatbot:client:username_remark_name_mapping', username,
+                        self.contacts[username].remark_name)
+
+    def _update_chatroom_redis_data(self, chatroom):
+        chatroom_username_nickname_dict = {}
+        member_list = chatroom.member_list
+        for member in member_list.values():
+            chatroom_username_nickname_dict[member.username] = member.nickname
+        self.r.hmset('chatbot:client:chatroom:' + chatroom.username + ':username_remark_name_mapping',
+                     chatroom_username_nickname_dict)
 
     def _publish(self, msg):
         self.logger.info(msg.json)
@@ -101,6 +112,7 @@ def send(ch, method, properties, msg, webwx_client: WebWxClient):
             webwx_client.webwxsendappmsg(msg['to_username'], msg['content'])
     except Exception as e:
         webwx_client.logger.error(e)
+    ch.basic_ack(delivery_tag=method.delivery_tag)
 
 
 def consume(webwx_client):
@@ -108,7 +120,7 @@ def consume(webwx_client):
     conn = pika.BlockingConnection(pika.ConnectionParameters(RABBIT_HOST, RABBIT_PORT))
     channel = conn.channel()
     channel.queue_declare(queue=SEND_QUEUE)
-    channel.basic_consume(cb, queue=SEND_QUEUE, no_ack=True)
+    channel.basic_consume(cb, queue=SEND_QUEUE)
     channel.start_consuming()
 
 

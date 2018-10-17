@@ -55,13 +55,13 @@ class WebWxClient:
         self.user: Friend = None
         self.special_users: Dict[str, Contact] = {}
         self.usernames_of_builtin_special_users = constants.BUILTIN_SPECIAL_USERS
-        # all contacts(including chatroom members)
+        # all contacts(including chatroom members media_platforms special_users)
         self.contacts: Dict[str, Contact] = {}
         # friends
         self.friends: Dict[str, Friend] = {}
         self.chatrooms: Dict[str, ChatRoom] = {}
         # members in chatroom
-        self.chatroom_contacts: Dict[str, Friend] = {}
+        self.chatroom_contacts: Dict[str, Contact] = {}
         self.media_platforms: Dict[str, MediaPlatform] = {}
 
     @property
@@ -213,8 +213,8 @@ class WebWxClient:
             # chatroom
             elif '@@' in contact['UserName']:
                 self.chatrooms[contact['UserName']] = ChatRoom(contact)
-                # if contact['MemberList']:
-                #     self.webwxbatchgetcontact([group_member['UserName'] for group_member in contact['MemberList']])
+                for member in contact['MemberList']:
+                    self.chatrooms[contact['UserName']].add_member(Contact(member))
             # self
             elif contact['UserName'] == self.user.username:
                 self.contacts[self.user.username] = self.user
@@ -243,11 +243,12 @@ class WebWxClient:
             self.logger.error(f"webwxbatchgetcontact error: {dic['BaseResponse']['ErrMsg']}")
             return False
         username_list = []
-        for member in dic['ContactList']:
-            username_list.append(member['UserName'])
-            friend = Friend(member)
-            self.contacts[friend.username] = friend
-            self.chatroom_contacts[friend.username] = friend
+        self._parse_contacts_json(dic['ContactList'])
+        # for contact_json in dic['ContactList']:
+        #     username_list.append(contact_json['UserName'])
+        #     contact = Contact(contact_json)
+        #     self.contacts[contact.username] = contact
+
         # trigger update
         self.handle_update_contacts(username_list)
         return True
@@ -436,6 +437,9 @@ class WebWxClient:
             #     raw_msg = {
             #         'raw_msg': msg, 'message': '[*] 该消息类型为: %d，可能是表情，图片, 链接或红包' % msg['MsgType']}
             #     self._showMsg(raw_msg)
+
+    def get_user_nickname_in_chatroom(self, username, chatroom):
+        pass
 
     def start_receiving(self):
         self.logger.info('Start receiving...')

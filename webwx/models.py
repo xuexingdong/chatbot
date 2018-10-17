@@ -36,10 +36,11 @@ class ChatRoom(Contact):
 
     def __init__(self, user_dict: dict):
         super().__init__(user_dict)
-        self.member_list: Dict[str, Friend] = {}
+        # chatroom member profile is different from user profile
+        self.member_list: Dict[str, Contact] = {}
 
-    def add_member(self, person: Friend):
-        self.member_list[person.username] = person
+    def add_member(self, contact: Contact):
+        self.member_list[contact.username] = contact
 
 
 class MediaPlatform(Contact):
