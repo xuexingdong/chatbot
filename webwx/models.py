@@ -5,19 +5,19 @@ from webwx import utils
 from webwx.enums import VerifyFlag, Sex, MsgType
 
 
+def _unescape_emoji(text):
+    if 'emoji' not in text:
+        return text
+    return utils.replace_emoji(text)
+
+
 class Contact:
 
     def __init__(self, user_dict: dict):
         self.username = user_dict['UserName']
-        self.nickname = self._unescape_emoji(user_dict['NickName'])
-        self.remark_name = self._unescape_emoji(user_dict['RemarkName'])
+        self.nickname = _unescape_emoji(user_dict['NickName'])
+        self.remark_name = _unescape_emoji(user_dict['RemarkName'])
         self.sex = Sex(user_dict['Sex'])
-
-    @staticmethod
-    def _unescape_emoji(text):
-        if 'emoji' not in text:
-            return text
-        return utils.replace_emoji(text)
 
 
 class SpecialUser(Contact):
@@ -29,7 +29,15 @@ class Friend(Contact):
 
     def __init__(self, user_dict: dict):
         super().__init__(user_dict)
-        self.display_name = user_dict.get('DisplayName', '')
+
+
+class ChatroomMember:
+    def __init__(self, user_dict: dict):
+        self.username = user_dict['UserName']
+        # remark name if contact is remarked, else is nickname
+        self.nickname = _unescape_emoji(user_dict['NickName'])
+        # nickname in the chatroom
+        self.display_name = _unescape_emoji(user_dict['DisplayName'])
 
 
 class ChatRoom(Contact):
@@ -37,10 +45,13 @@ class ChatRoom(Contact):
     def __init__(self, user_dict: dict):
         super().__init__(user_dict)
         # chatroom member profile is different from user profile
-        self.member_list: Dict[str, Contact] = {}
+        self.member_list: Dict[str, ChatroomMember] = {}
 
-    def add_member(self, contact: Contact):
-        self.member_list[contact.username] = contact
+    def add_member(self, member: ChatroomMember):
+        self.member_list[member.username] = member
+
+    def clear_members(self):
+        self.member_list.clear()
 
 
 class MediaPlatform(Contact):

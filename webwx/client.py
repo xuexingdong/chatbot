@@ -23,7 +23,7 @@ from urllib3.exceptions import InsecureRequestWarning
 from webwx import constants
 from webwx.enums import MsgType, QRCodeStatus, SubMsgType
 from webwx.models import Friend, ChatRoom, MediaPlatform, Contact, SpecialUser, TextMsg, LocationMsg, ImageMsg, Msg, \
-    EmotionMsg
+    EmotionMsg, ChatroomMember
 
 
 class WebWxClient:
@@ -60,12 +60,10 @@ class WebWxClient:
         # friends
         self.friends: Dict[str, Friend] = {}
         self.chatrooms: Dict[str, ChatRoom] = {}
-        # members in chatroom
-        self.chatroom_contacts: Dict[str, Contact] = {}
         self.media_platforms: Dict[str, MediaPlatform] = {}
 
     @property
-    def sync_key(self):
+    def sync_key(self) -> str:
         return '|'.join(
             [str(kv['Key']) + '_' + str(kv['Val']) for kv in self.sync_key_dic['List']])
 
@@ -74,19 +72,19 @@ class WebWxClient:
         return self.base_uri + '/webwxsync?sid=%s&skey=%s&pass_ticket=%s' % (
             self.sid, self.skey, self.pass_ticket)
 
-    def wait_for_login(self) -> bool:
+    def wait_for_login(self):
         self.uuid = self._gen_uuid()
         self.logger.info(f"Generate uuid: {self.uuid}")
         self.logger.info("Scan the qrcode to login")
         self._print_login_qrcode(self.uuid)
         self._wait_until_scan_qrcode_success()
         self.logger.info("Login success")
-        return self._init()
+        self._init()
 
     def after_login(self):
         pass
 
-    def relogin(self):
+    def relogin(self) -> bool:
         r = self.session.get('https://login.weixin.qq.com/cgi-bin/mmwebwx-bin/webwxpushloginurl?uin=' + self.uin)
         res = r.json()
         if res['ret'] != 0:
@@ -97,7 +95,7 @@ class WebWxClient:
         self._init()
         return True
 
-    def logout(self):
+    def logout(self) -> bool:
         url = self.base_uri + '/webwxlogout'
         params = {
             'redirect': 1,
@@ -198,10 +196,11 @@ class WebWxClient:
             return False
 
         member_list = dic['MemberList'][:]
+        # webwxgetcontact does not include chatroom member detail
         self._parse_contacts_json(member_list)
         return True
 
-    def _parse_contacts_json(self, contacts_json):
+    def _parse_contacts_json(self, contacts_json, has_chatroom_member_detail=False):
         for contact in contacts_json:
             self.contacts[contact['UserName']] = Contact(contact)
             # media platform
@@ -212,9 +211,13 @@ class WebWxClient:
                 self.special_users[contact['UserName']] = SpecialUser(contact)
             # chatroom
             elif '@@' in contact['UserName']:
-                self.chatrooms[contact['UserName']] = ChatRoom(contact)
-                for member in contact['MemberList']:
-                    self.chatrooms[contact['UserName']].add_member(Contact(member))
+                if contact['UserName'] not in self.chatrooms:
+                    self.chatrooms[contact['UserName']] = ChatRoom(contact)
+                chatroom = self.chatrooms[contact['UserName']]
+                if has_chatroom_member_detail:
+                    chatroom.clear_members()
+                    for member in contact['MemberList']:
+                        chatroom.add_member(ChatroomMember(member))
             # self
             elif contact['UserName'] == self.user.username:
                 self.contacts[self.user.username] = self.user
@@ -241,14 +244,11 @@ class WebWxClient:
         dic = r.json()
         if dic['BaseResponse']['Ret'] != 0:
             self.logger.error(f"webwxbatchgetcontact error: {dic['BaseResponse']['ErrMsg']}")
-            return False
+            return []
+        self._parse_contacts_json(dic['ContactList'], True)
         username_list = []
-        self._parse_contacts_json(dic['ContactList'])
-        # for contact_json in dic['ContactList']:
-        #     username_list.append(contact_json['UserName'])
-        #     contact = Contact(contact_json)
-        #     self.contacts[contact.username] = contact
-
+        for contact_json in dic['ContactList']:
+            username_list.append(contact_json['UserName'])
         # trigger update
         self.handle_update_contacts(username_list)
         return True
@@ -333,7 +333,7 @@ class WebWxClient:
         self.sync_key_dic = res['SyncKey']
         if res['ModContactList']:
             # contact info updated
-            self._parse_contacts_json(res['ModContactList'])
+            self._parse_contacts_json(res['ModContactList'], True)
             # trigger update
             self.handle_update_contacts(list(map(lambda x: x['UserName'], res['ModContactList'])))
         for add_msg in res['AddMsgList']:
@@ -348,13 +348,10 @@ class WebWxClient:
             content = html.unescape(add_msg['Content'])
             msg = Msg(add_msg['MsgId'], self.contacts[add_msg['FromUserName']],
                       self.contacts[add_msg['ToUserName']], content, add_msg['CreateTime'])
-            # if message is from chatroom, try to find the real from username,
-            # and add it into self.contacts if it has not be cached
+            # message is from chatroom, check if the chatroom's member detail is fetched
             if msg.from_user.username.startswith('@@'):
-                if '' not in self.contacts:
-                    real_from_username = ''
-                    if real_from_username not in self.contacts:
-                        self.webwxbatchgetcontact([real_from_username])
+                if len(self.chatrooms[msg.from_user.username].member_list) == 0:
+                    self.webwxbatchgetcontact([msg.from_user.username])
             if msg_type == MsgType.TEXT:
                 # location info
                 if SubMsgType(int(add_msg['SubMsgType'])):
