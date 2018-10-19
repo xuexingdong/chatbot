@@ -11,7 +11,7 @@ from redis import StrictRedis
 
 from config import RABBIT_HOST, RABBIT_PORT, RECEIVE_QUEUE, SEND_QUEUE, REDIS_HOST, REDIS_PORT, REDIS_DB
 from webwx.client import WebWxClient
-from webwx.enums import MsgType
+from webwx.enums import MsgType, EventType
 
 
 class CustomClient(WebWxClient):
@@ -85,10 +85,14 @@ class CustomClient(WebWxClient):
             self.r.hset('chatbot:client:username_nickname_mapping', username, self.contacts[username].nickname)
 
     def _update_chatroom_member_data(self, chatroom):
+        chatroom_username_nickname_dict = {}
         chatroom_username_display_name_dict = {}
         member_list = chatroom.member_list
         for member in member_list.values():
+            # set user nickname who is not your friend but in the chatroom
+            chatroom_username_nickname_dict[member.username] = member.nickname
             chatroom_username_display_name_dict[member.username] = member.display_name
+        self.r.hmset('chatbot:client:username_nickname_mapping', chatroom_username_nickname_dict)
         self.r.hmset('chatbot:client:chatroom:' + chatroom.username + ':username_display_name_mapping',
                      chatroom_username_display_name_dict)
 
@@ -105,14 +109,22 @@ class CustomClient(WebWxClient):
 def send(ch, method, properties, msg, webwx_client: WebWxClient):
     msg = json.loads(msg.decode())
     webwx_client.logger.info(msg)
-    msg_type = MsgType(msg['msg_type'])
+    to = msg['to_username']
+    event_type = EventType[msg['event_type']]
+    content = msg['content']
     try:
-        if msg_type == MsgType.TEXT:
-            webwx_client.webwxsendmsg(msg['to_username'], msg['content'])
-        elif msg_type == MsgType.IMAGE:
-            webwx_client.webwxsendmsgimg(msg['to_username'], msg['content'])
-        elif msg_type == MsgType.FILE:
-            webwx_client.webwxsendappmsg(msg['to_username'], msg['content'])
+        if event_type == EventType.SEND_MESSAGE:
+            msg_type = MsgType(msg['msg_type'])
+            if msg_type == MsgType.TEXT:
+                webwx_client.webwxsendmsg(to, content)
+            elif msg_type == MsgType.IMAGE:
+                webwx_client.webwxsendmsgimg(to, content)
+            elif msg_type == MsgType.FILE:
+                webwx_client.webwxsendappmsg(to, content)
+        elif event_type == EventType.MODIFY_FRIEND_REMARK_NAME:
+            client.webwxoplog(to, content)
+        elif event_type == EventType.MODIFY_FRIEND_REMARK_NAME:
+            client.webwxupdatechatroom(to, content)
     except Exception as e:
         webwx_client.logger.error(e)
     ch.basic_ack(delivery_tag=method.delivery_tag)

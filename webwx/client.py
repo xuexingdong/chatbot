@@ -68,7 +68,7 @@ class WebWxClient:
             [str(kv['Key']) + '_' + str(kv['Val']) for kv in self.sync_key_dic['List']])
 
     @property
-    def sync_url(self):
+    def sync_url(self) -> str:
         return self.base_uri + '/webwxsync?sid=%s&skey=%s&pass_ticket=%s' % (
             self.sid, self.skey, self.pass_ticket)
 
@@ -224,34 +224,6 @@ class WebWxClient:
             # normal friends
             else:
                 self.friends[contact['UserName']] = Friend(contact)
-
-    def webwxbatchgetcontact(self, username_list):
-        if not username_list:
-            return True
-        url = self.base_uri + '/webwxbatchgetcontact'
-        params = {
-            'type':        'ex',
-            'pass_ticket': self.pass_ticket,
-            'r':           int(time.time())
-        }
-        data = {
-            'BaseRequest': self.base_request,
-            'Count':       len(username_list),
-            'List':        [{'UserName': u, 'EncryChatRoomId': ""} for u in username_list]
-        }
-        r = self.session.post(url, params=params, json=data)
-        r.encoding = 'utf-8'
-        dic = r.json()
-        if dic['BaseResponse']['Ret'] != 0:
-            self.logger.error(f"webwxbatchgetcontact error: {dic['BaseResponse']['ErrMsg']}")
-            return []
-        self._parse_contacts_json(dic['ContactList'], True)
-        username_list = []
-        for contact_json in dic['ContactList']:
-            username_list.append(contact_json['UserName'])
-        # trigger update
-        self.handle_update_contacts(username_list)
-        return True
 
     def testsynccheck(self):
         sync_hosts = ['wx2.qq.com',
@@ -484,6 +456,34 @@ class WebWxClient:
             else:
                 self.logger.warning(f"Unknown retcode: {retcode}")
 
+    def webwxbatchgetcontact(self, username_list):
+        if not username_list:
+            return True
+        url = self.base_uri + '/webwxbatchgetcontact'
+        params = {
+            'type':        'ex',
+            'pass_ticket': self.pass_ticket,
+            'r':           int(time.time())
+        }
+        data = {
+            'BaseRequest': self.base_request,
+            'Count':       len(username_list),
+            'List':        [{'UserName': u, 'EncryChatRoomId': ""} for u in username_list]
+        }
+        r = self.session.post(url, params=params, json=data)
+        r.encoding = 'utf-8'
+        dic = r.json()
+        if dic['BaseResponse']['Ret'] != 0:
+            self.logger.error(f"webwxbatchgetcontact error: {dic['BaseResponse']['ErrMsg']}")
+            return []
+        self._parse_contacts_json(dic['ContactList'], True)
+        username_list = []
+        for contact_json in dic['ContactList']:
+            username_list.append(contact_json['UserName'])
+        # trigger update
+        self.handle_update_contacts(username_list)
+        return True
+
     def webwxgetmsgimg(self, msgid):
         # add param type=slave to get the thumbnail instead of the whole image
         url = self.base_uri + '/webwxgetmsgimg?MsgID=%s&skey=%s' % (msgid, self.skey)
@@ -502,6 +502,18 @@ class WebWxClient:
         url = self.base_uri + '/webwxgetpubliclinkimg?url=xxx&msgid=%s&pictype=location' % msgid
         return self.session.get(url).content
 
+    def webwxupdatechatroom(self, chatroom_username, new_name):
+        url = self.base_uri + '/webwxupdatechatroom?fun=modtopic&pass_ticket=%s' % self.pass_ticket
+        data = {
+            'BaseRequest':  self.base_request,
+            'ChatRoomName': chatroom_username,
+            'NewTopic':     new_name
+        }
+        r = self._send_request(url, data)
+        dic = r.json()
+        success = dic['BaseResponse']['Ret'] == 0
+        return success
+
     def webwxoplog(self, to_username, remark_name):
         """
         set remark name to an user
@@ -510,21 +522,20 @@ class WebWxClient:
         :return:
         """
         url = self.base_uri + '/webwxoplog?pass_ticket=%s' % self.pass_ticket
-        params = {
+        data = {
             'BaseRequest': self.base_request,
             'CmdId':       2,
             'RemarkName':  remark_name,
             'UserName':    to_username
         }
-        headers = {'content-type': 'application/json;charset=UTF-8'}
-        data = json.dumps(params, ensure_ascii=False).encode()
-        dic = self.session.post(url, data=data, headers=headers).json()
+        r = self._send_request(url, data)
+        dic = r.json()
         success = dic['BaseResponse']['Ret'] == 0
         return success
 
     def webwxrevokemsg(self, msgid, to_username):
         url = self.base_uri + '/webwxrevokemsg'
-        params = {
+        data = {
             'BaseRequest': self.base_request,
             'Msg':         {
                 'ToUserName':  to_username,
@@ -532,16 +543,15 @@ class WebWxClient:
                 'ClientMsgId': msgid
             }
         }
-        headers = {'content-type': 'application/json;charset=UTF-8'}
-        data = json.dumps(params, ensure_ascii=False).encode()
-        dic = self.session.post(url, data=data, headers=headers).json()
+        r = self._send_request(url, data)
+        dic = r.json()
         success = dic['BaseResponse']['Ret'] == 0
         return success
 
     def webwxsendmsg(self, to_username, content):
         url = self.base_uri + '/webwxsendmsg?pass_ticket=%s' % self.pass_ticket
         client_msg_id = self._gen_client_msg_id()
-        params = {
+        data = {
             'BaseRequest': self.base_request,
             'Msg':         {
                 'Type':         MsgType.TEXT.value,
@@ -552,9 +562,8 @@ class WebWxClient:
                 'ClientMsgId':  client_msg_id
             }
         }
-        headers = {'content-type': 'application/json;charset=UTF-8'}
-        data = json.dumps(params, ensure_ascii=False).encode()
-        dic = self.session.post(url, data=data, headers=headers).json()
+        r = self._send_request(url, data)
+        dic = r.json()
         success = dic['BaseResponse']['Ret'] == 0
         return success
 
@@ -564,7 +573,7 @@ class WebWxClient:
             return
         url = self.base_uri + '/webwxsendmsgimg?fun=async&f=json&pass_ticket=%s' % self.pass_ticket
         client_msg_id = self._gen_client_msg_id()
-        params = {
+        data = {
             'BaseRequest': self.base_request,
             'Msg':         {
                 'Type':         3,
@@ -575,9 +584,8 @@ class WebWxClient:
                 'ClientMsgId':  client_msg_id
             }
         }
-        headers = {'content-type': 'application/json;charset=UTF-8'}
-        data = json.dumps(params, ensure_ascii=False).encode()
-        dic = self.session.post(url, data=data, headers=headers).json()
+        r = self._send_request(url, data)
+        dic = r.json()
         success = dic['BaseResponse']['Ret'] == 0
         return success
 
@@ -805,3 +813,8 @@ class WebWxClient:
                 self._print_login_qrcode(self.uuid)
             if status == QRCodeStatus.CONFIRM:
                 break
+
+    def _send_request(self, url, data):
+        headers = {'content-type': 'application/json;charset=UTF-8'}
+        data = json.dumps(data, ensure_ascii=False).encode()
+        return self.session.post(url, data=data, headers=headers)

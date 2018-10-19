@@ -32,6 +32,20 @@ class MsgType(IntEnum):
 
 
 @unique
+class EventType(IntEnum):
+    # message
+    SEND_MESSAGE = 101
+
+    # friend management
+    AGREE_FRIEND_REQUEST = 201
+    REJECT_FRIEND_REQUEST = 202
+    MODIFY_FRIEND_REMARK_NAME = 203
+
+    # chatroom management
+    MODIFY_CHATROOM_NAME = 301
+
+
+@unique
 class SubMsgType(IntEnum):
     TEXT = 0
     LOCATION = 48
