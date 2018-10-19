@@ -5,19 +5,19 @@ from webwx import utils
 from webwx.enums import VerifyFlag, Sex, MsgType
 
 
+def _unescape_emoji(text):
+    if 'emoji' not in text:
+        return text
+    return utils.replace_emoji(text)
+
+
 class Contact:
 
     def __init__(self, user_dict: dict):
         self.username = user_dict['UserName']
-        self.nickname = self._unescape_emoji(user_dict['NickName'])
-        self.remark_name = self._unescape_emoji(user_dict['RemarkName'])
+        self.nickname = _unescape_emoji(user_dict['NickName'])
+        self.remark_name = _unescape_emoji(user_dict['RemarkName'])
         self.sex = Sex(user_dict['Sex'])
-
-    @staticmethod
-    def _unescape_emoji(text):
-        if 'emoji' not in text:
-            return text
-        return utils.replace_emoji(text)
 
 
 class SpecialUser(Contact):
@@ -29,17 +29,29 @@ class Friend(Contact):
 
     def __init__(self, user_dict: dict):
         super().__init__(user_dict)
-        self.display_name = user_dict.get('DisplayName', '')
+
+
+class ChatroomMember:
+    def __init__(self, user_dict: dict):
+        self.username = user_dict['UserName']
+        # remark name if contact is remarked, else is nickname
+        self.nickname = _unescape_emoji(user_dict['NickName'])
+        # nickname in the chatroom
+        self.display_name = _unescape_emoji(user_dict['DisplayName'])
 
 
 class ChatRoom(Contact):
 
     def __init__(self, user_dict: dict):
         super().__init__(user_dict)
-        self.member_list: Dict[str, Friend] = {}
+        # chatroom member profile is different from user profile
+        self.member_list: Dict[str, ChatroomMember] = {}
 
-    def add_member(self, person: Friend):
-        self.member_list[person.username] = person
+    def add_member(self, member: ChatroomMember):
+        self.member_list[member.username] = member
+
+    def clear_members(self):
+        self.member_list.clear()
 
 
 class MediaPlatform(Contact):
@@ -50,14 +62,16 @@ class MediaPlatform(Contact):
 
 
 class Msg:
-    def __init__(self, msg_id, from_user, to_user, create_time, msg_type=MsgType.UNHANDLED):
+    def __init__(self, msg_id, from_user, to_user, content, create_time, msg_type=MsgType.UNHANDLED):
         self.msg_id = msg_id
         self.from_user = from_user
         self.to_user = to_user
         self.msg_type = msg_type
         self.create_time = create_time
+        self.content = content
 
-    def to_json(self):
+    @property
+    def json(self):
         return {
             'msg_id':           self.msg_id,
             'msg_type':         self.msg_type,
@@ -67,45 +81,25 @@ class Msg:
             'to_nickname':      self.to_user.nickname,
             'from_remark_name': self.from_user.remark_name,
             'to_remark_name':   self.to_user.remark_name,
+            'content':          self.content,
             'create_time':      self.create_time
         }
 
 
-class LocationMsg(Msg):
-    def __init__(self, msg: Msg, url, content):
-        super().__init__(msg.msg_id, msg.from_user, msg.to_user, msg.create_time, MsgType.LOCATION)
-        self.url = url
-        self.content = content
-
-    def to_json(self):
-        dic = super().to_json()
-        dic.update({
-            'url':     self.url,
-            'content': self.content
-        })
-        return dic
-
-
 class TextMsg(Msg):
     def __init__(self, msg: Msg, content):
-        super().__init__(msg.msg_id, msg.from_user, msg.to_user, msg.create_time, MsgType.TEXT)
+        super().__init__(msg.msg_id, msg.from_user, msg.to_user, msg.content, msg.create_time, MsgType.TEXT)
         self.content = utils.replace_emoji(content)
-
-    def to_json(self):
-        dic = super().to_json()
-        dic.update({
-            'content': self.content
-        })
-        return dic
 
 
 class ImageMsg(Msg):
-    def __init__(self, msg: Msg, base64_content: bytes):
-        super().__init__(msg.msg_id, msg.from_user, msg.to_user, msg.create_time, MsgType.IMAGE)
+    def __init__(self, msg: Msg, base64_content):
+        super().__init__(msg.msg_id, msg.from_user, msg.to_user, msg.content, msg.create_time, MsgType.IMAGE)
         self.base64_content = base64_content
 
-    def to_json(self):
-        dic = super().to_json()
+    @property
+    def json(self):
+        dic = super().json
         dic.update({
             'base64_content': self.base64_content
         })
@@ -114,7 +108,7 @@ class ImageMsg(Msg):
 
 class EmotionMsg(Msg):
     def __init__(self, msg: Msg, content):
-        super().__init__(msg.msg_id, msg.from_user, msg.to_user, msg.create_time, MsgType.EMOTION)
+        super().__init__(msg.msg_id, msg.from_user, msg.to_user, msg.content, msg.create_time, MsgType.EMOTION)
         # wechat inside emotion has no content
         self.url = ''
         if content:
@@ -123,8 +117,9 @@ class EmotionMsg(Msg):
                 content = content[index:]
                 self.url = self._parse_emotion_url(content)
 
-    def to_json(self):
-        dic = super().to_json()
+    @property
+    def json(self):
+        dic = super().json
         dic.update({
             'url': self.url
         })
@@ -135,3 +130,9 @@ class EmotionMsg(Msg):
         doc = minidom.parseString(content)
         root = doc.documentElement
         return root.getElementsByTagName('emoji')[0].getAttribute('cdnurl')
+
+
+class LocationMsg(ImageMsg):
+    def __init__(self, msg: Msg, base64_content):
+        super().__init__(msg, base64_content)
+        self.msg_type = MsgType.LOCATION
