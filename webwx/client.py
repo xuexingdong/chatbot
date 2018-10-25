@@ -295,6 +295,7 @@ class WebWxClient:
             time.sleep(3)
             return
         r.encoding = 'utf-8'
+        self.logger.info('webwxsync')
         return r.json()
 
     def handle(self, res):
@@ -416,7 +417,7 @@ class WebWxClient:
             retcode, selector = self.synccheck()
             if retcode == '0':
                 if selector == '0':
-                    pass
+                    self.logger.info('0')
                 elif selector == '1':
                     msg = self.webwxsync()
                     self.logger.info(msg)
@@ -430,6 +431,7 @@ class WebWxClient:
                     self.logger.info("Contact info updated")
                     self.webwxsync()
                 elif selector == '5':
+                    self.logger.info('5')
                     self.webwxsync()
                 elif selector == '6':
                     self.logger.info('App message: red package, article, etc.')
@@ -455,6 +457,8 @@ class WebWxClient:
                     self.wait_for_login()
             else:
                 self.logger.warning(f"Unknown retcode: {retcode}")
+                msg = self.webwxsync()
+                self.handle(msg)
 
     def webwxbatchgetcontact(self, username_list):
         if not username_list:

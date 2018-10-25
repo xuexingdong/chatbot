@@ -48,21 +48,21 @@ BLOCKED
 {
     "msg_type": 1,
     "content": "hello world"
-  }
+}
 ```
 
 ### 修改好友备注名事件
 ```json
 {
     "remark_name": "hello world"
-  }
+}
 ```
 
 ### 修改群名称事件
 ```json
 {
     "name": "hello world"
-  }
+}
 ```
 
 ### 文本消息
