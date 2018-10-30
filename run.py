@@ -3,7 +3,6 @@ import json
 import random
 import threading
 from logging.config import dictConfig
-
 import pika
 import yaml
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -34,7 +33,7 @@ class CustomClient(WebWxClient):
 
     def after_login(self):
         # persist cookie
-        self.r.hmset("chatbot:session", self.session.cookies.get_dict())
+        self.r.hmset("chatbot:client:cookie", self.session.cookies.get_dict())
         # chatid is webwx's username
         self.r.set('chatbot:client:self_chatid', self.user.username)
         username_dict = {}
@@ -58,6 +57,8 @@ class CustomClient(WebWxClient):
             self.r.hmset('chatbot:client:username_nickname_mapping', nickname_dict)
         if remark_name_dict:
             self.r.hmset('chatbot:client:remark_name_username_mapping', remark_name_dict)
+
+        self._persist_contact_data()
 
     def handle_text(self, msg):
         self._publish(msg)
@@ -83,6 +84,16 @@ class CustomClient(WebWxClient):
             self.r.hset('chatbot:client:username_remark_name_mapping', username,
                         self.contacts[username].remark_name)
             self.r.hset('chatbot:client:username_nickname_mapping', username, self.contacts[username].nickname)
+
+    def _persist_contact_data(self):
+        for special_user in self.special_users.values():
+            self.r.hmset('chatbot:client:special_user:' + special_user.username, special_user.json)
+        for chatroom in self.chatrooms.values():
+            self.r.hmset('chatbot:client:media_platform:' + chatroom.username, chatroom.json)
+        for media_platform in self.media_platforms.values():
+            self.r.hmset('chatbot:client:media_platform:' + media_platform.username, media_platform.json)
+        for friend in self.friends.values():
+            self.r.hmset('chatbot:client:friend:' + friend.username, friend.json)
 
     def _update_chatroom_member_data(self, chatroom):
         chatroom_username_nickname_dict = {}
