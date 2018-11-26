@@ -15,9 +15,20 @@ class Contact:
 
     def __init__(self, user_dict: dict):
         self.username = user_dict['UserName']
+        self.head_img_url = user_dict['HeadImgUrl']
         self.nickname = _unescape_emoji(user_dict['NickName'])
         self.remark_name = _unescape_emoji(user_dict['RemarkName'])
         self.sex = Sex(user_dict['Sex'])
+
+    @property
+    def json(self):
+        return {
+            'username':     self.username,
+            'head_img_url': self.head_img_url,
+            'nickname':     self.nickname,
+            'remark_name':  self.remark_name,
+            'sex':          self.sex
+        }
 
 
 class SpecialUser(Contact):

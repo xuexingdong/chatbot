@@ -295,6 +295,7 @@ class WebWxClient:
             time.sleep(3)
             return
         r.encoding = 'utf-8'
+        self.logger.info('webwxsync')
         return r.json()
 
     def handle(self, res):
@@ -455,6 +456,8 @@ class WebWxClient:
                     self.wait_for_login()
             else:
                 self.logger.warning(f"Unknown retcode: {retcode}")
+                msg = self.webwxsync()
+                self.handle(msg)
 
     def webwxbatchgetcontact(self, username_list):
         if not username_list:
