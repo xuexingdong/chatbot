@@ -33,7 +33,9 @@ class CustomClient(WebWxClient):
 
     def after_login(self):
         # persist cookie
+
         self.r.hmset("chatbot:client:cookie", self.session.cookies.get_dict())
+
         # chatid is webwx's username
         self.r.set('chatbot:client:self_chatid', self.user.username)
         username_dict = {}
@@ -84,6 +86,7 @@ class CustomClient(WebWxClient):
             self.r.hset('chatbot:client:username_remark_name_mapping', username,
                         self.contacts[username].remark_name)
             self.r.hset('chatbot:client:username_nickname_mapping', username, self.contacts[username].nickname)
+
 
     def _persist_contact_data(self):
         for special_user in self.special_users.values():

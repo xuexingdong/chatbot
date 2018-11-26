@@ -488,6 +488,34 @@ class WebWxClient:
         self.handle_update_contacts(username_list)
         return True
 
+    def webwxbatchgetcontact(self, username_list):
+        if not username_list:
+            return True
+        url = self.base_uri + '/webwxbatchgetcontact'
+        params = {
+            'type':        'ex',
+            'pass_ticket': self.pass_ticket,
+            'r':           int(time.time())
+        }
+        data = {
+            'BaseRequest': self.base_request,
+            'Count':       len(username_list),
+            'List':        [{'UserName': u, 'EncryChatRoomId': ""} for u in username_list]
+        }
+        r = self.session.post(url, params=params, json=data)
+        r.encoding = 'utf-8'
+        dic = r.json()
+        if dic['BaseResponse']['Ret'] != 0:
+            self.logger.error(f"webwxbatchgetcontact error: {dic['BaseResponse']['ErrMsg']}")
+            return []
+        self._parse_contacts_json(dic['ContactList'], True)
+        username_list = []
+        for contact_json in dic['ContactList']:
+            username_list.append(contact_json['UserName'])
+        # trigger update
+        self.handle_update_contacts(username_list)
+        return True
+
     def webwxgetmsgimg(self, msgid):
         # add param type=slave to get the thumbnail instead of the whole image
         url = self.base_uri + '/webwxgetmsgimg?MsgID=%s&skey=%s' % (msgid, self.skey)
